@@ -90,5 +90,48 @@ export async function getPayments(userId: string) {
 }
 
 export async function getNotifications(userId: string, take = 8) {
-  return db.notification.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take });
+  return db.notification.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take, include: { order: { select: { number: true } } } });
+}
+
+/** Müşteri bildirimleri (yönetici uyarıları yönetim panelinde izlenir, burada sayılmaz). */
+export function countUnreadNotifications(userId: string) {
+  return db.notification.count({ where: { userId, readAt: null, type: { not: "ADMIN_ALERT" } } });
+}
+
+/**
+ * Müşterinin ilgisini bekleyenler: ekibin yanıt bekleyen soruları (siparişteki son mesaj ekipten),
+ * okunmamış bildirimler, hesap doğrulaması ve deneme durumu. Panel menüsü ve genel bakış kullanır.
+ */
+export async function getPanelAttention(userId: string) {
+  const [latest, unreadNotifications, user, trial] = await Promise.all([
+    db.$queryRaw<Array<{ orderId: string; type: string; message: string | null; createdAt: Date }>>`
+      SELECT DISTINCT ON (e."orderId") e."orderId", e."type", e."message", e."createdAt"
+      FROM "OrderEvent" e
+      JOIN "Order" o ON o."id" = e."orderId"
+      WHERE o."userId" = ${userId} AND o."status" <> 'CANCELLED' AND e."type" IN ('CUSTOMER_MESSAGE', 'NOTE')
+      ORDER BY e."orderId", e."createdAt" DESC`,
+    countUnreadNotifications(userId),
+    db.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true, phoneVerifiedAt: true } }),
+    db.trialApplication.findUnique({ where: { userId }, select: { number: true, status: true } }),
+  ]);
+  const waiting = latest.filter((l) => l.type === "NOTE");
+  const orders = waiting.length
+    ? await db.order.findMany({
+        where: { id: { in: waiting.map((w) => w.orderId) }, userId },
+        select: { id: true, number: true, song: { select: { artistName: true, title: true } } },
+      })
+    : [];
+  const awaitingReply = waiting
+    .flatMap((w) => {
+      const o = orders.find((x) => x.id === w.orderId);
+      return o ? [{ number: o.number, song: `${o.song.artistName} – ${o.song.title}`, question: w.message ?? "", at: w.createdAt }] : [];
+    })
+    .sort((a, b) => b.at.getTime() - a.at.getTime());
+  return {
+    awaitingReply,
+    unreadNotifications,
+    emailVerified: Boolean(user?.emailVerifiedAt),
+    phoneVerified: Boolean(user?.phoneVerifiedAt),
+    trial,
+  };
 }

@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Music } from "lucide-react";
+import { Music, PlusCircle } from "lucide-react";
 import { OrderStatusBadge } from "@/components/order/status-badge";
+import { LinkButton } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/primitives";
 import { messages } from "@/i18n/config";
 import { formatDate } from "@/lib/dates";
 import { requireUser } from "@/server/auth/guards";
-import { getSongs } from "@/server/queries/customer";
-import { PanelPage } from "../_components";
+import { getEntitlements, getSongs } from "@/server/queries/customer";
+import { entitlementState, PanelPage } from "../_components";
 
 export const metadata: Metadata = { title: "Şarkılarım" };
 
@@ -23,7 +24,26 @@ async function Songs() {
   const user = await requireUser("/panel/sarkilarim");
   const songs = await getSongs(user.id);
   const t = messages();
-  if (!songs.length) return <EmptyState icon={<Music className="size-6" />} title="Henüz şarkı göndermedin" />;
+  if (!songs.length) {
+    // Kullanılabilir paket hakkı varsa doğrudan şarkı gönderme adımına, yoksa paketlere yönlendir
+    const hasUsable = (await getEntitlements(user.id)).some((e) => entitlementState(e).usable);
+    return (
+      <EmptyState
+        icon={<Music className="size-6" />}
+        title="Henüz şarkı göndermedin"
+        description={hasUsable ? "Paketindeki video haklarını kullanarak ilk şarkını hemen gönderebilirsin." : "Bir paket seçerek ilk şarkını gönderebilirsin."}
+        action={
+          hasUsable ? (
+            <LinkButton href="/panel/yeni-siparis" icon={<PlusCircle className="size-4" aria-hidden />}>
+              Yeni Şarkı Gönder
+            </LinkButton>
+          ) : (
+            <LinkButton href="/paketler">Paketleri İncele</LinkButton>
+          )
+        }
+      />
+    );
+  }
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {songs.map((s) => (

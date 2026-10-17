@@ -56,6 +56,7 @@ export function BillingForm({
       <div className="rounded-2xl border border-line bg-canvas p-4">
         <Checkbox
           name="distanceSales"
+          defaultChecked={v.distanceSales === "on"}
           label={
             <>
               <Link href="/on-bilgilendirme-formu" target="_blank" className="font-semibold text-brand hover:underline">

@@ -26,7 +26,7 @@ async function Codes() {
   const [codes, partners, packages] = await Promise.all([
     db.referralCode.findMany({
       orderBy: { createdAt: "desc" },
-      include: { partner: { select: { id: true, name: true, active: true } }, packages: { select: { name: true } }, _count: { select: { orders: true } } },
+      include: { partner: { select: { id: true, name: true, active: true } }, packages: { select: { name: true } }, packageRates: { select: { commissionRateBps: true, package: { select: { name: true, sortOrder: true } } } }, _count: { select: { orders: true } } },
     }),
     db.partner.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     db.package.findMany({ where: { status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
@@ -60,10 +60,22 @@ async function Codes() {
                   <Link href={`/admin/is-ortaklari/${c.partner.id}`} className="hover:underline">
                     {c.partner.name}
                   </Link>
+                  {!c.partner.active && (
+                    <div className="mt-1">
+                      <Badge tone="warning">İş ortağı pasif</Badge>
+                    </div>
+                  )}
                 </Td>
                 <Td>{c.discountType === "PERCENT" ? bpsLabel(c.discountValue) : formatMoney(c.discountValue)}</Td>
                 <Td>
-                  {bpsLabel(c.commissionRateBps)}
+                  {c.packageRates.length ? `Genel ${bpsLabel(c.commissionRateBps)}` : bpsLabel(c.commissionRateBps)}
+                  {[...c.packageRates]
+                    .sort((a, b) => a.package.sortOrder - b.package.sortOrder)
+                    .map((r) => (
+                      <div key={r.package.name} className="text-xs text-ink-soft">
+                        {r.package.name}: <strong>{bpsLabel(r.commissionRateBps)}</strong>
+                      </div>
+                    ))}
                   <div className="text-xs text-muted">{COMMISSION_BASE_LABEL[c.commissionBase]}</div>
                 </Td>
                 <Td className="text-xs">

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { ArrowLeft, ArrowRight, Check, Clapperboard, Film, Music2, ShieldCheck, Type, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -38,25 +38,158 @@ const STYLE_CHOICES: Array<{ value: VideoStyleValue | ""; label: string; icon: t
 
 type Files = Record<CustomerFileKind, UploadedFileInfo[]>;
 
-export function TrialWizard({ rules, previewHours }: { rules: Record<FileKindValue, FileRuleInfo>; previewHours: number }) {
-  const [step, setStep] = useState(0);
-  const [song, setSong] = useState({
-    artistName: "",
-    title: "",
-    releaseStatus: "" as ReleaseStatusValue | "",
-    language: "Türkçe",
-    lyrics: "",
-    streamingUrl: "",
-  });
-  const [files, setFiles] = useState<Files>({ SONG_AUDIO: [], LYRICS: [], MUSIC_VIDEO: [], IMAGE: [], FOOTAGE: [] });
-  const [preferredStyle, setPreferredStyle] = useState<VideoStyleValue | "">("");
-  const [formats, setFormats] = useState<VideoFormatValue[]>(["VERTICAL"]);
-  const [footageSource, setFootageSource] = useState<"ADDLYRICS_LICENSED" | "CUSTOMER_PROVIDED">("ADDLYRICS_LICENSED");
-  const [notes, setNotes] = useState("");
+type SongDraft = {
+  artistName: string;
+  title: string;
+  releaseStatus: ReleaseStatusValue | "";
+  language: string;
+  lyrics: string;
+  streamingUrl: string;
+};
+
+type FootageChoice = "ADDLYRICS_LICENSED" | "CUSTOMER_PROVIDED";
+
+/** Tarayıcıda saklanan taslak. Onay kutuları bilinçli olarak saklanmaz; her seferinde yeniden işaretlenir. */
+type Draft = {
+  song: SongDraft;
+  files: Files;
+  preferredStyle: VideoStyleValue | "";
+  formats: VideoFormatValue[];
+  footageSource: FootageChoice;
+  notes: string;
+};
+
+function emptyDraft(): Draft {
+  return {
+    song: { artistName: "", title: "", releaseStatus: "", language: "Türkçe", lyrics: "", streamingUrl: "" },
+    files: { SONG_AUDIO: [], LYRICS: [], MUSIC_VIDEO: [], IMAGE: [], FOOTAGE: [] },
+    preferredStyle: "",
+    formats: ["VERTICAL"],
+    footageSource: "ADDLYRICS_LICENSED",
+    notes: "",
+  };
+}
+
+/** Kayıtlı taslağı okur; yalnızca anlamlı ilerleme varsa geri yükler (OrderWizard ile aynı yaklaşım). */
+function loadDraft(draftKey: string): { draft: Draft; step: number; restored: boolean } {
+  const fallback = emptyDraft();
+  try {
+    const saved = localStorage.getItem(draftKey);
+    if (saved) {
+      const parsed = JSON.parse(saved) as { draft?: Partial<Draft>; step?: number };
+      const d = parsed.draft ?? {};
+      const draft: Draft = {
+        song: { ...fallback.song, ...d.song },
+        files: { ...fallback.files, ...d.files },
+        preferredStyle: d.preferredStyle ?? fallback.preferredStyle,
+        formats: Array.isArray(d.formats) ? d.formats : fallback.formats,
+        footageSource: d.footageSource ?? fallback.footageSource,
+        notes: typeof d.notes === "string" ? d.notes : fallback.notes,
+      };
+      const step = Math.min(Math.max(parsed.step ?? 0, 0), STEPS.length - 1);
+      const hasProgress =
+        Boolean(draft.song.title.trim() || draft.song.lyrics.trim()) || Object.values(draft.files).some((list) => list.length > 0) || step > 0;
+      if (hasProgress) return { draft, step, restored: true };
+    }
+  } catch {}
+  return { draft: fallback, step: 0, restored: false };
+}
+
+/**
+ * Sunucu hata anahtarları ("song.title", "fileIds", "termsAccepted"…) formdaki alan anahtarlarına ve adımlara eşlenir;
+ * eşlenemeyen mesajlar genel hata kutusunda gösterilir.
+ */
+function mapServerErrors(fieldErrors: Record<string, string>) {
+  const errors: Record<string, string> = {};
+  const unmatched: string[] = [];
+  let step: number | null = null;
+  for (const [key, message] of Object.entries(fieldErrors)) {
+    const [root, sub] = key.split(".");
+    let target: { field: string; step: number } | null = null;
+    if (root === "song" && sub) target = { field: sub, step: 0 };
+    else if (root === "fileIds") target = { field: "audio", step: 1 };
+    else if (root === "preferredStyle") target = { field: "style", step: 2 };
+    else if (root === "footageSource") target = { field: "footage", step: 2 };
+    else if (root === "formats") target = { field: "formats", step: 2 };
+    else if (root === "notesForEditor") target = { field: "notes", step: 2 };
+    else if (root === "rightsConfirmed" || root === "materialsMatchConfirmed" || root === "termsAccepted") target = { field: "confirm", step: 3 };
+    if (!target) {
+      unmatched.push(message);
+      continue;
+    }
+    if (!errors[target.field]) errors[target.field] = message;
+    step = step === null ? target.step : Math.min(step, target.step);
+  }
+  return { errors, step, unmatched };
+}
+
+const subscribeNoop = () => () => {};
+
+type TrialWizardProps = {
+  rules: Record<FileKindValue, FileRuleInfo>;
+  previewHours: number;
+  /** Verilirse taslak kullanıcıya özel anahtarla saklanır (aynı tarayıcıyı paylaşan hesaplar karışmaz) */
+  userId?: string;
+};
+
+/**
+ * Deneme başvuru sihirbazı. Taslak tarayıcıda (localStorage) tutulduğu için yalnızca istemcide render edilir;
+ * sunucuda ve hidrasyon sırasında iskelet gösterilir.
+ */
+export function TrialWizard(props: TrialWizardProps) {
+  const isClient = useSyncExternalStore(subscribeNoop, () => true, () => false);
+  if (!isClient) {
+    return (
+      <div className="space-y-4" aria-busy="true" aria-label="Başvuru formu yükleniyor">
+        <div className="h-8 w-full animate-pulse rounded-xl bg-slate-200/70" />
+        <div className="h-80 animate-pulse rounded-2xl bg-slate-200/70" />
+      </div>
+    );
+  }
+  return <TrialWizardInner {...props} />;
+}
+
+function TrialWizardInner({ rules, previewHours, userId }: TrialWizardProps) {
+  const draftKey = userId ? `addlyrics-trial:${userId}` : "addlyrics-trial";
+  // Kaydedilmiş taslak (yalnızca istemcide çalışır; bileşen sunucuda render edilmez)
+  const [initial] = useState(() => loadDraft(draftKey));
+  const [step, setStep] = useState(initial.step);
+  const [song, setSong] = useState<SongDraft>(initial.draft.song);
+  const [files, setFiles] = useState<Files>(initial.draft.files);
+  const [preferredStyle, setPreferredStyle] = useState<VideoStyleValue | "">(initial.draft.preferredStyle);
+  const [formats, setFormats] = useState<VideoFormatValue[]>(initial.draft.formats);
+  const [footageSource, setFootageSource] = useState<FootageChoice>(initial.draft.footageSource);
+  const [notes, setNotes] = useState(initial.draft.notes);
   const [confirm, setConfirm] = useState({ rights: false, match: false, terms: false });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
+  const [restored, setRestored] = useState(initial.restored);
   const [submitting, startSubmit] = useTransition();
+
+  // Taslağı tarayıcıda sakla (sayfa yenilenirse veya sekme kapanırsa kaybolmasın)
+  useEffect(() => {
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ draft: { song, files, preferredStyle, formats, footageSource, notes }, step }));
+    } catch {}
+  }, [draftKey, song, files, preferredStyle, formats, footageSource, notes, step]);
+
+  function resetDraft() {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    const fresh = emptyDraft();
+    setSong(fresh.song);
+    setFiles(fresh.files);
+    setPreferredStyle(fresh.preferredStyle);
+    setFormats(fresh.formats);
+    setFootageSource(fresh.footageSource);
+    setNotes(fresh.notes);
+    setConfirm({ rights: false, match: false, terms: false });
+    setStep(0);
+    setErrors({});
+    setServerError(null);
+    setRestored(false);
+  }
 
   const hasMusicVideo = files.MUSIC_VIDEO.length > 0;
   const approaches = useMemo(
@@ -106,7 +239,12 @@ export function TrialWizard({ rules, previewHours }: { rules: Record<FileKindVal
     }
     setServerError(null);
     const fileIds = Object.values(files).flat().map((f) => f.id);
+    const snapshot = JSON.stringify({ draft: { song, files, preferredStyle, formats, footageSource, notes }, step });
     startSubmit(async () => {
+      // Başarılı olursa sunucu yönlendirir; taslak önceden silinir, hata olursa geri yazılır
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
       const result: TrialSubmitResult | undefined = await submitTrial({
         song: { ...song, streamingUrl: song.streamingUrl || undefined },
         preferredStyle: preferredStyle || undefined,
@@ -119,8 +257,21 @@ export function TrialWizard({ rules, previewHours }: { rules: Record<FileKindVal
         termsAccepted: confirm.terms,
       });
       if (result && !result.ok) {
-        setServerError(result.error);
-        if (result.fieldErrors) setErrors(result.fieldErrors);
+        try {
+          localStorage.setItem(draftKey, snapshot);
+        } catch {}
+        if (result.fieldErrors) {
+          // "song.title" gibi anahtarlar ilgili alana eşlenir ve ilk hatanın olduğu adıma dönülür
+          const mapped = mapServerErrors(result.fieldErrors);
+          setErrors(mapped.errors);
+          setServerError([result.error, ...mapped.unmatched].join("\n"));
+          if (mapped.step !== null && mapped.step !== step) {
+            setStep(mapped.step);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        } else {
+          setServerError(result.error);
+        }
       }
     });
   }
@@ -137,6 +288,15 @@ export function TrialWizard({ rules, previewHours }: { rules: Record<FileKindVal
           </li>
         ))}
       </ol>
+
+      {restored && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-soft bg-brand-tint px-4 py-2.5 text-sm text-brand-ink">
+          <span>Kaldığın yerden devam ediyorsun.</span>
+          <button type="button" onClick={resetDraft} className="font-semibold underline-offset-2 hover:underline">
+            Baştan başla
+          </button>
+        </div>
+      )}
 
       {serverError && (
         <Alert tone="danger" title="Başvurun gönderilemedi">
@@ -280,7 +440,7 @@ export function TrialWizard({ rules, previewHours }: { rules: Record<FileKindVal
             {errors.footage && <p className="mt-1.5 text-sm text-danger">{errors.footage}</p>}
           </fieldset>
 
-          <Field label="Editöre notun" htmlFor="notes" optional hint="Renk, yazı tipi, öne çıkmasını istediğin satırlar…">
+          <Field label="Editöre notun" htmlFor="notes" optional error={errors.notes} hint="Renk, yazı tipi, öne çıkmasını istediğin satırlar…">
             <Textarea id="notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={4000} />
           </Field>
         </div>

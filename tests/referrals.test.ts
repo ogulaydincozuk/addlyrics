@@ -188,6 +188,35 @@ describe("referans kodları ve komisyonlar", () => {
     await expect(applyReferralCodeToOrder(user.id, order.number, "RAP10")).rejects.toThrow(/geçerli değil/);
   });
 
+  it("paket bazında komisyon oranı: tanımlı pakette o oran, diğer paketlerde genel oran uygulanır", async () => {
+    const { admin, pkg, code, codeInput } = await setup();
+    const pkg3 = await createPackage({ priceKurus: 940000, videoCount: 90 });
+    await updateReferralCode(admin, code.id, { ...codeInput, commissionRateBps: 1000, packageRates: [{ packageId: pkg3.id, commissionRateBps: 750 }] });
+
+    // Genel %10: 3.200 − %10 indirim = 2.880 → 288 TL
+    const a = await orderWithCode(pkg.slug, "RAP10");
+    await pay(a.order.number, a.user.id);
+    // Pakete özel %7,5: 9.400 − %10 indirim = 8.460 → 634,50 TL
+    const b = await orderWithCode(pkg3.slug, "RAP10");
+    await pay(b.order.number, b.user.id);
+
+    const ca = await db.commission.findFirstOrThrow({ where: { orderId: a.order.id } });
+    const cb = await db.commission.findFirstOrThrow({ where: { orderId: b.order.id } });
+    expect(ca).toMatchObject({ rateBps: 1000, amountKurus: 28800 });
+    expect(ca.calculation).toMatchObject({ rateSource: "DEFAULT" });
+    expect(cb).toMatchObject({ rateBps: 750, amountKurus: 63450 });
+    expect(cb.calculation).toMatchObject({ rateSource: "PACKAGE", packageId: pkg3.id });
+
+    // Oran sonradan değişse de oluşmuş komisyon kendi oranıyla kalır; formdaki oranlar eskilerin yerine geçer
+    await updateReferralCode(admin, code.id, { ...codeInput, commissionRateBps: 1000, packageRates: [{ packageId: pkg3.id, commissionRateBps: 500 }] });
+    expect((await db.commission.findFirstOrThrow({ where: { orderId: b.order.id } })).rateBps).toBe(750);
+    expect(await db.referralCodePackageRate.findMany({ where: { referralCodeId: code.id }, select: { commissionRateBps: true } })).toEqual([{ commissionRateBps: 500 }]);
+
+    await expect(
+      updateReferralCode(admin, code.id, { ...codeInput, packageRates: [{ packageId: pkg3.id, commissionRateBps: 12000 }] }),
+    ).rejects.toThrow(/%0 ile %100/);
+  });
+
   it("sipariş özetindeki kod önizlemesi indirimi hesaplar ama hiçbir kaydı değiştirmez", async () => {
     const { admin, partner, pkg, code, codeInput } = await setup();
     const user = await createUser();

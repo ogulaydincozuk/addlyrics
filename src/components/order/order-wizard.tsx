@@ -43,6 +43,7 @@ import {
 import { formatMoney } from "@/lib/money";
 import { NO_REVISION_TEXT, PREPARATION_TEXT } from "@/lib/packages";
 import { missingRequiredItems, REQUIRED_ITEM_LABELS } from "@/lib/order-requirements";
+import { readStoredReferralCode } from "@/lib/referral-link";
 import { flattenErrors, formatStepSchema, orderInputSchema, songStepSchema, styleStepSchema } from "@/lib/validation";
 import type { OrderSubmitResult, ReferralPreviewResult } from "@/app/(site)/siparis/actions";
 
@@ -145,7 +146,8 @@ function loadDraft(draftKey: string, fallback: Draft): { draft: Draft; step: num
       if (hasProgress) {
         return {
           draft: { ...fallback, ...parsed.draft, rightsConfirmed: false, termsAccepted: false },
-          step: Math.min(parsed.step ?? 0, STEPS.length - 1),
+          // Onay kutuları geri yüklenmediği için en fazla kullanım hakkı onayının bulunduğu dosya adımından devam edilir
+          step: Math.min(parsed.step ?? 0, STEPS.findIndex((s) => s.key === "files")),
           restored: true,
         };
       }
@@ -186,7 +188,15 @@ export function OrderWizard(props: WizardProps) {
 
 function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submit, checkReferralCode }: WizardProps) {
   // Kaydedilmiş taslak (yalnızca istemcide çalışır; bileşen sunucuda render edilmez)
-  const [initial] = useState(() => loadDraft(draftKey, emptyDraft(defaultArtistName, pkg)));
+  const [initial] = useState(() => {
+    const loaded = loadDraft(draftKey, emptyDraft(defaultArtistName, pkg));
+    // İş ortağı bağlantısıyla gelindiyse kod önceden doldurulur (sunucuda yine doğrulanır)
+    if (mode === "purchase" && checkReferralCode && !loaded.draft.referralCode) {
+      const stored = readStoredReferralCode();
+      if (stored) loaded.draft = { ...loaded.draft, referralCode: stored };
+    }
+    return loaded;
+  });
   const [draft, setDraft] = useState<Draft>(initial.draft);
   const [step, setStep] = useState(initial.step);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -282,6 +292,8 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
     if (!validateStep(step)) return;
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
+    // Özete geçerken önceden doldurulmuş (ör. iş ortağı bağlantısından gelen) kod otomatik kontrol edilir
+    if (step + 1 === STEPS.length - 1 && codeEnabled && draft.referralCode.trim() && !codePreview && !codeError) applyCode();
   }
 
   function goBack() {

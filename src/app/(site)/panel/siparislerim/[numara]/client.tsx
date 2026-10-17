@@ -61,7 +61,7 @@ export function LyricsForm({ orderNumber, initial }: { orderNumber: string; init
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="orderNumber" value={orderNumber} />
-      <Textarea name="lyrics" rows={8} defaultValue={initial} placeholder={"Birinci satır\nİkinci satır\n…"} aria-label="Şarkı sözleri" />
+      <Textarea name="lyrics" rows={8} defaultValue={state.values?.lyrics ?? initial} placeholder={"Birinci satır\nİkinci satır\n…"} aria-label="Şarkı sözleri" />
       {state.message && <Alert tone={state.ok ? "success" : "danger"}>{state.message}</Alert>}
       <Button type="submit" variant="secondary" size="sm" disabled={pending}>
         {pending ? "Kaydediliyor…" : "Sözleri Kaydet"}
@@ -84,6 +84,7 @@ export function OrderMessageForm({ orderNumber }: { orderNumber: string }) {
         name="message"
         rows={3}
         placeholder="Ekibimizin sorularını yanıtla veya eklemek istediklerini yaz."
+        defaultValue={state.ok ? "" : (state.values?.message ?? "")}
         aria-invalid={!!state.errors?.message}
       />
       {state.errors?.message && <p className="text-sm text-danger">{state.errors.message}</p>}

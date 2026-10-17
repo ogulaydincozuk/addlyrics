@@ -35,7 +35,7 @@ async function Payouts() {
     db.commissionPayout.findMany({
       orderBy: { paidAt: "desc" },
       take: 100,
-      include: { partner: { select: { name: true } }, createdBy: { select: { name: true } }, _count: { select: { commissions: true } } },
+      include: { partner: { select: { id: true, name: true } }, createdBy: { select: { name: true } }, _count: { select: { commissions: true } } },
     }),
   ]);
 
@@ -48,7 +48,15 @@ async function Payouts() {
 
   return (
     <div className="space-y-6">
-      {byPartner.size === 0 && <p className="text-sm text-muted">Ödenmeyi bekleyen onaylı komisyon yok.</p>}
+      {byPartner.size === 0 && (
+        <p className="text-sm text-muted">
+          Ödenmeyi bekleyen onaylı komisyon yok. Önce{" "}
+          <Link href="/admin/komisyonlar?onaylanabilir=1" className="font-semibold text-brand hover:underline">
+            onaylanabilir komisyonları
+          </Link>{" "}
+          onaylayın.
+        </p>
+      )}
       {[...byPartner.entries()].map(([partnerId, { name, items }]) => {
         const deduction = clawbacks.filter((c) => c.partnerId === partnerId).reduce((n, c) => n + c.amountKurus, 0);
         const gross = items.reduce((n, c) => n + c.amountKurus, 0);
@@ -104,7 +112,11 @@ async function Payouts() {
             {payouts.map((p) => (
               <tr key={p.id}>
                 <Td>{formatDate(p.paidAt)}</Td>
-                <Td>{p.partner.name}</Td>
+                <Td>
+                  <Link href={`/admin/is-ortaklari/${p.partner.id}`} className="text-brand hover:underline">
+                    {p.partner.name}
+                  </Link>
+                </Td>
                 <Td className="font-semibold">{formatMoney(p.amountKurus)}</Td>
                 <Td>
                   <Badge>{p._count.commissions} kayıt</Badge>

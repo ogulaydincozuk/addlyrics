@@ -607,7 +607,7 @@ export async function sendCustomerNote(orderId: string, message: string, actorId
     email: {
       subject: `Siparişinle ilgili bir mesajımız var (${order.number})`,
       paragraphs: [text, "Yanıtını sipariş sayfandaki \"Mesajlar\" bölümünden yazabilirsin."],
-      cta: { label: "Yanıtla", href: `/panel/siparislerim/${order.number}` },
+      cta: { label: "Yanıtla", href: `/panel/siparislerim/${order.number}#mesajlar` },
     },
   });
 }

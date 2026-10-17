@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { CommissionStatus, Prisma } from "@prisma/client";
+import { OrderStatusBadge } from "@/components/order/status-badge";
 import { Input } from "@/components/ui/field";
 import { Badge } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
@@ -10,7 +11,7 @@ import { bpsLabel, COMMISSION_BASE_LABEL, COMMISSION_STATUS_LABEL } from "@/lib/
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
 import { ActionForm } from "../_forms";
-import { AdminPage, Table, Td, Th } from "../_ui";
+import { AdminPage, customerHref, Table, Td, Th } from "../_ui";
 import { approveCommissionAction, cancelCommissionAction } from "../is-ortaklari/actions";
 
 export const metadata: Metadata = { title: "Satış ve Komisyonlar" };
@@ -31,19 +32,45 @@ export default function CommissionsPage({ searchParams }: PageProps<"/admin/komi
 async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar">, "searchParams">) {
   await requireAdmin();
   const sp = await searchParams;
-  const status = typeof sp.durum === "string" && (STATUSES as string[]).includes(sp.durum) ? (sp.durum as CommissionStatus) : null;
-  const partnerId = typeof sp.ortak === "string" ? sp.ortak : null;
-  const where: Prisma.CommissionWhereInput = { ...(status ? { status } : {}), ...(partnerId ? { partnerId } : {}) };
+  // "Onaylanabilir": approveCommission ile aynı kural — bekleyen, iade/cayma süresi dolmuş, ödemesi geçerli
+  const approvable = sp.onaylanabilir === "1";
+  const status = !approvable && typeof sp.durum === "string" && (STATUSES as string[]).includes(sp.durum) ? (sp.durum as CommissionStatus) : null;
+  const partnerId = typeof sp.ortak === "string" && sp.ortak ? sp.ortak : null;
+  const q = typeof sp.q === "string" ? sp.q.trim().slice(0, 80) : "";
   const now = new Date();
+  const approvableWhere: Prisma.CommissionWhereInput = { status: "PENDING", eligibleAt: { lte: now }, payment: { status: "SUCCEEDED" } };
+  const where: Prisma.CommissionWhereInput = {
+    ...(approvable ? approvableWhere : status ? { status } : {}),
+    ...(partnerId ? { partnerId } : {}),
+    ...(q
+      ? {
+          order: {
+            OR: [
+              { number: { contains: q, mode: "insensitive" } },
+              { user: { email: { contains: q, mode: "insensitive" } } },
+              { user: { name: { contains: q, mode: "insensitive" } } },
+            ],
+          },
+        }
+      : {}),
+  };
+  // Sekme bağlantıları iş ortağı filtresini ve arama metnini korur
+  const href = (params: Record<string, string>) => {
+    const search = new URLSearchParams(params);
+    if (partnerId) search.set("ortak", partnerId);
+    if (q) search.set("q", q);
+    const s = search.toString();
+    return s ? `/admin/komisyonlar?${s}` : "/admin/komisyonlar";
+  };
 
-  const [rows, totals, partners, pendingOrders] = await Promise.all([
+  const [rows, totals, partners, pendingOrders, approvableCount] = await Promise.all([
     db.commission.findMany({
       where,
       orderBy: { createdAt: "desc" },
       take: 300,
       include: {
         partner: { select: { id: true, name: true } },
-        referralCode: { select: { code: true } },
+        referralCode: { select: { id: true, code: true } },
         payment: { select: { status: true, amountKurus: true, refundedAt: true } },
         order: {
           select: {
@@ -63,8 +90,14 @@ async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar"
     db.partner.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     // Kodla oluşturulmuş ama henüz ödemesi doğrulanmamış siparişler (kazanılmış sayılmaz)
     db.order.count({ where: { referralCodeId: { not: null }, status: "PAYMENT_PENDING", ...(partnerId ? { partnerId } : {}) } }),
+    db.commission.count({ where: { ...approvableWhere, ...(partnerId ? { partnerId } : {}) } }),
   ]);
   const total = (s: CommissionStatus) => totals.find((t) => t.status === s);
+  const tabs = [
+    { label: "Tümü", href: href({}), on: !status && !approvable },
+    { label: `Onaylanabilir (${approvableCount})`, href: href({ onaylanabilir: "1" }), on: approvable },
+    ...STATUSES.map((s) => ({ label: COMMISSION_STATUS_LABEL[s], href: href({ durum: s }), on: status === s })),
+  ];
 
   return (
     <div className="space-y-5">
@@ -80,13 +113,21 @@ async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar"
       <p className="text-xs text-muted">Kodla açılmış, ödemesi beklenen sipariş: {pendingOrders} (komisyon doğmaz).</p>
 
       <div className="flex flex-wrap gap-2">
-        {[{ label: "Tümü", href: "/admin/komisyonlar", on: !status }, ...STATUSES.map((s) => ({ label: COMMISSION_STATUS_LABEL[s], href: `/admin/komisyonlar?durum=${s}${partnerId ? `&ortak=${partnerId}` : ""}`, on: status === s }))].map((t) => (
+        {tabs.map((t) => (
           <Link key={t.href} href={t.href} className={cn("rounded-full px-3 py-1.5 text-xs font-semibold ring-1", t.on ? "bg-lime text-ink ring-[#c4e534]" : "bg-card text-ink-soft ring-line")}>
             {t.label}
           </Link>
         ))}
-        <form className="ml-auto">
+        <form className="ml-auto flex flex-wrap items-center gap-2" role="search">
           {status && <input type="hidden" name="durum" value={status} />}
+          {approvable && <input type="hidden" name="onaylanabilir" value="1" />}
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="Sipariş no veya müşteri e-postası"
+            aria-label="Komisyonlarda ara"
+            className="h-9 w-56 rounded-lg border border-line-strong bg-card px-2 text-sm"
+          />
           <select name="ortak" defaultValue={partnerId ?? ""} className="h-9 rounded-lg border border-line-strong bg-card px-2 text-sm" aria-label="İş ortağı filtresi">
             <option value="">Tüm iş ortakları</option>
             {partners.map((p) => (
@@ -95,7 +136,7 @@ async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar"
               </option>
             ))}
           </select>
-          <button type="submit" className="ml-2 h-9 rounded-lg bg-ink px-3 text-sm font-semibold text-white">
+          <button type="submit" className="h-9 rounded-lg bg-ink px-3 text-sm font-semibold text-white">
             Filtrele
           </button>
         </form>
@@ -130,11 +171,15 @@ async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar"
                   <div className="text-xs text-muted">{formatDate(c.createdAt)}</div>
                 </Td>
                 <Td>
-                  {c.order.user.name}
+                  <Link href={customerHref(c.order.user.email)} className="hover:text-brand hover:underline">
+                    {c.order.user.name}
+                  </Link>
                   <div className="text-xs text-muted">{c.order.user.email}</div>
                 </Td>
                 <Td>
-                  <Badge tone="brand">{c.referralCode.code}</Badge>
+                  <Link href={`/admin/referans-kodlari/${c.referralCode.id}`} aria-label={`${c.referralCode.code} kodunu aç`}>
+                    <Badge tone="brand">{c.referralCode.code}</Badge>
+                  </Link>
                   <div className="text-xs">
                     <Link href={`/admin/is-ortaklari/${c.partner.id}`} className="hover:underline">
                       {c.partner.name}
@@ -155,7 +200,9 @@ async function Commissions({ searchParams }: Pick<PageProps<"/admin/komisyonlar"
                 <Td className="font-semibold">{formatMoney(c.amountKurus)}</Td>
                 <Td className="text-xs">
                   {refunded ? <Badge tone="danger">İade edildi</Badge> : <Badge tone="success">Ödendi</Badge>}
-                  <div className="mt-1 text-muted">{c.order.status}</div>
+                  <div className="mt-1">
+                    <OrderStatusBadge status={c.order.status} />
+                  </div>
                 </Td>
                 <Td>
                   <Badge tone={c.status === "PAID" ? "success" : c.status === "CANCELLED" ? "neutral" : c.status === "APPROVED" ? "brand" : "warning"}>{COMMISSION_STATUS_LABEL[c.status]}</Badge>

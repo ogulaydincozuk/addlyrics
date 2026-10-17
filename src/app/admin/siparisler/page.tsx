@@ -11,7 +11,7 @@ import { formatMoney } from "@/lib/money";
 import { ACTIVE_STATUSES } from "@/lib/order-status";
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
-import { AdminPage, Table, Td, Th } from "../_ui";
+import { AdminPage, customerHref, Table, Td, Th } from "../_ui";
 
 export const metadata: Metadata = { title: "Siparişler" };
 
@@ -64,11 +64,18 @@ async function Orders({ searchParams }: Pick<PageProps<"/admin/siparisler">, "se
   ]);
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count._all ?? 0;
 
+  // Sekmeler arama metnini korur
+  const withQ = (params: string) => {
+    const search = new URLSearchParams(params);
+    if (q) search.set("q", q);
+    const s = search.toString();
+    return s ? `/admin/siparisler?${s}` : "/admin/siparisler";
+  };
   const tabs = [
-    { label: "Tümü", href: "/admin/siparisler", on: !durum && !overdue && !active },
-    { label: "Üretimde", href: "/admin/siparisler?aktif=1", on: active },
-    ...ORDER_STATUSES.map((s) => ({ label: `${t.enums.orderStatus[s]} (${countOf(s)})`, href: `/admin/siparisler?durum=${s}`, on: durum === s })),
-    { label: "Gecikenler", href: "/admin/siparisler?gecikmis=1", on: overdue },
+    { label: "Tümü", href: withQ(""), on: !durum && !overdue && !active },
+    { label: "Üretimde", href: withQ("aktif=1"), on: active },
+    ...ORDER_STATUSES.map((s) => ({ label: `${t.enums.orderStatus[s]} (${countOf(s)})`, href: withQ(`durum=${s}`), on: durum === s })),
+    { label: "Gecikenler", href: withQ("gecikmis=1"), on: overdue },
   ];
 
   return (
@@ -83,6 +90,8 @@ async function Orders({ searchParams }: Pick<PageProps<"/admin/siparisler">, "se
           aria-label="Siparişlerde ara"
         />
         {durum && <input type="hidden" name="durum" value={durum} />}
+        {active && <input type="hidden" name="aktif" value="1" />}
+        {overdue && <input type="hidden" name="gecikmis" value="1" />}
       </form>
       <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {tabs.map((tab) => (
@@ -130,7 +139,9 @@ async function Orders({ searchParams }: Pick<PageProps<"/admin/siparisler">, "se
                   </p>
                 </Td>
                 <Td>
-                  <p className="text-ink">{o.user.name}</p>
+                  <Link href={customerHref(o.user.email)} className="text-ink hover:text-brand hover:underline">
+                    {o.user.name}
+                  </Link>
                   <p className="text-xs text-muted">{o.user.email}</p>
                 </Td>
                 <Td>{o.videoCount}</Td>

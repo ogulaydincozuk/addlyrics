@@ -25,12 +25,17 @@ async function Trials({ searchParams }: Pick<PageProps<"/admin/denemeler">, "sea
   const sp = await searchParams;
   const durum = typeof sp.durum === "string" && (TRIAL_STAGES as readonly string[]).includes(sp.durum) ? (sp.durum as TrialStageValue) : null;
   const overdue = sp.gecikmis === "1";
+  // Satın almaya dönüşen denemeler (gösterge panelindeki "Deneme → satın alma" kartı)
+  const converted = sp.donusen === "1";
   const q = typeof sp.q === "string" ? sp.q.trim().slice(0, 80) : "";
+  // Telefon kayıtları E.164 biçiminde (+905…); "0532 …" gibi yazımlar da bulunsun
+  const qPhone = /^[\d\s()+.\-]+$/.test(q) ? q.replace(/\D/g, "").replace(/^0+/, "") : "";
   const now = new Date();
 
   const where: Prisma.TrialApplicationWhereInput = {
     ...(durum ? { status: durum as TrialStage } : {}),
     ...(overdue ? { previewDueAt: { lt: now }, status: { in: ["QUEUED", "IN_PRODUCTION", "FAILED"] } } : {}),
+    ...(converted ? { convertedOrderId: { not: null } } : {}),
     ...(q
       ? {
           OR: [
@@ -38,11 +43,13 @@ async function Trials({ searchParams }: Pick<PageProps<"/admin/denemeler">, "sea
             { contactEmail: { contains: q, mode: "insensitive" } },
             { contactName: { contains: q, mode: "insensitive" } },
             { song: { title: { contains: q, mode: "insensitive" } } },
+            { user: { email: { contains: q, mode: "insensitive" } } },
+            ...(qPhone.length >= 4 ? [{ contactPhone: { contains: qPhone } }, { user: { phone: { contains: qPhone } } }] : []),
           ],
         }
       : {}),
   };
-  const [trials, counts, overdueCount] = await Promise.all([
+  const [trials, counts, overdueCount, convertedCount] = await Promise.all([
     db.trialApplication.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -56,16 +63,25 @@ async function Trials({ searchParams }: Pick<PageProps<"/admin/denemeler">, "sea
     }),
     db.trialApplication.groupBy({ by: ["status"], _count: { _all: true } }),
     db.trialApplication.count({ where: { previewDueAt: { lt: now }, status: { in: ["QUEUED", "IN_PRODUCTION", "FAILED"] } } }),
+    db.trialApplication.count({ where: { convertedOrderId: { not: null } } }),
   ]);
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count._all ?? 0;
+  // Sekmeler arama metnini korur
+  const withQ = (params: string) => {
+    const search = new URLSearchParams(params);
+    if (q) search.set("q", q);
+    const s = search.toString();
+    return s ? `/admin/denemeler?${s}` : "/admin/denemeler";
+  };
   const tabs = [
-    { label: "Tümü", href: "/admin/denemeler", on: !durum && !overdue },
+    { label: "Tümü", href: withQ(""), on: !durum && !overdue && !converted },
     ...TRIAL_STAGES.filter((s) => s !== "EDITOR_REVIEW").map((s) => ({
       label: `${TRIAL_STAGE_LABEL[s]} (${countOf(s)})`,
-      href: `/admin/denemeler?durum=${s}`,
+      href: withQ(`durum=${s}`),
       on: durum === s,
     })),
-    { label: `Gecikenler (${overdueCount})`, href: "/admin/denemeler?gecikmis=1", on: overdue },
+    { label: `Gecikenler (${overdueCount})`, href: withQ("gecikmis=1"), on: overdue },
+    { label: `Satın alınan (${convertedCount})`, href: withQ("donusen=1"), on: converted },
   ];
 
   return (
@@ -75,9 +91,13 @@ async function Trials({ searchParams }: Pick<PageProps<"/admin/denemeler">, "sea
         <input
           name="q"
           defaultValue={q}
-          placeholder="Başvuru no, e-posta, ad veya şarkı ara"
+          placeholder="Başvuru no, e-posta, ad, telefon veya şarkı ara"
+          aria-label="Denemelerde ara"
           className="h-11 w-full rounded-xl border border-line-strong bg-card pl-10 pr-3 text-sm outline-none focus:border-brand focus:ring-4 focus:ring-brand-soft"
         />
+        {durum && <input type="hidden" name="durum" value={durum} />}
+        {overdue && <input type="hidden" name="gecikmis" value="1" />}
+        {converted && <input type="hidden" name="donusen" value="1" />}
       </form>
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => (

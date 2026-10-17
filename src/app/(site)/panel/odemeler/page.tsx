@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CreditCard } from "lucide-react";
 import { PaymentStatusBadge } from "@/components/order/status-badge";
+import { LinkButton } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/primitives";
 import { messages } from "@/i18n/config";
 import { formatDateTime } from "@/lib/dates";
@@ -25,7 +26,16 @@ async function Payments() {
   const user = await requireUser("/panel/odemeler");
   const list = await getPayments(user.id);
   const t = messages();
-  if (!list.length) return <EmptyState icon={<CreditCard className="size-6" />} title="Henüz ödeme yok" />;
+  if (!list.length) {
+    return (
+      <EmptyState
+        icon={<CreditCard className="size-6" />}
+        title="Henüz ödeme yok"
+        description="Bir paket satın aldığında ödemelerin burada listelenir."
+        action={<LinkButton href="/paketler">Paketleri İncele</LinkButton>}
+      />
+    );
+  }
   return (
     <div className="relative overflow-x-auto rounded-2xl border border-line bg-card">
       <table className="w-full min-w-[600px] text-left text-sm">

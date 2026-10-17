@@ -5,7 +5,7 @@ import { formatDate } from "@/lib/dates";
 import { Badge } from "@/components/ui/primitives";
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
-import { AdminPage, Table, Td, Th } from "../_ui";
+import { AdminPage, customerOrdersHref, Table, Td, Th } from "../_ui";
 
 export const metadata: Metadata = { title: "Müşteriler" };
 
@@ -21,6 +21,8 @@ async function Customers({ searchParams }: Pick<PageProps<"/admin/musteriler">, 
   await requireAdmin();
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q.trim().slice(0, 80) : "";
+  // Telefon kayıtları E.164 biçiminde (+905…); "0532 …" gibi yazımlar da bulunsun
+  const qPhone = /^[\d\s()+.\-]+$/.test(q) ? q.replace(/\D/g, "").replace(/^0+/, "") : "";
   const now = new Date();
   const users = await db.user.findMany({
     where: {
@@ -31,6 +33,8 @@ async function Customers({ searchParams }: Pick<PageProps<"/admin/musteriler">, 
               { email: { contains: q, mode: "insensitive" } },
               { name: { contains: q, mode: "insensitive" } },
               { artistName: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q } },
+              ...(qPhone.length >= 4 ? [{ phone: { contains: qPhone } }] : []),
             ],
           }
         : {}),
@@ -52,7 +56,7 @@ async function Customers({ searchParams }: Pick<PageProps<"/admin/musteriler">, 
         <input
           name="q"
           defaultValue={q}
-          placeholder="Ad, sanatçı adı veya e-posta ara"
+          placeholder="Ad, sanatçı adı, e-posta veya telefon ara"
           aria-label="Müşterilerde ara"
           className="h-11 w-full rounded-xl border border-line bg-card pl-10 pr-3 text-sm focus:border-brand focus:outline-none focus:shadow-[var(--shadow-focus)]"
         />
@@ -100,6 +104,11 @@ async function Customers({ searchParams }: Pick<PageProps<"/admin/musteriler">, 
                       {o.number}
                     </Link>
                   ))}
+                  {u._count.orders > 0 && (
+                    <Link href={customerOrdersHref(u.email)} className="mt-1 block text-xs font-semibold text-brand hover:underline">
+                      Tüm siparişleri ({u._count.orders}) →
+                    </Link>
+                  )}
                 </Td>
               </tr>
             );

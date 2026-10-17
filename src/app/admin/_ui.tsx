@@ -19,6 +19,16 @@ export function AdminPage({ title, description, actions, children }: { title: st
   );
 }
 
+/** Müşteri listesinde bu müşteriyi bulan bağlantı (e-postayla arama). */
+export function customerHref(email: string) {
+  return `/admin/musteriler?q=${encodeURIComponent(email)}`;
+}
+
+/** Müşterinin tüm siparişleri (sipariş aramasında e-posta da aranır). */
+export function customerOrdersHref(email: string) {
+  return `/admin/siparisler?q=${encodeURIComponent(email)}`;
+}
+
 export function Table({ children, minWidth = 720 }: { children: ReactNode; minWidth?: number }) {
   return (
     <div className="relative overflow-x-auto rounded-2xl border border-line bg-card">

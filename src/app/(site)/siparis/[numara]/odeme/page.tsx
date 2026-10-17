@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
-import { CreditCard, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CreditCard, ShieldCheck } from "lucide-react";
 import { Alert, Badge, Card, Container, PageSkeleton } from "@/components/ui/primitives";
 import { messages } from "@/i18n/config";
 import { formatMoney } from "@/lib/money";
@@ -49,6 +50,9 @@ async function PaymentContent({ params }: Pick<PageProps<"/siparis/[numara]/odem
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0 space-y-6">
+        <Link href={`/panel/siparislerim/${order.number}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline">
+          <ArrowLeft className="size-4" aria-hidden /> Sipariş detayına dön
+        </Link>
         <div>
           <p className="text-sm font-semibold text-brand">Sipariş {order.number}</p>
           <h1 className="mt-1 text-2xl font-extrabold text-ink sm:text-3xl">Fatura bilgileri ve ödeme</h1>
@@ -62,7 +66,10 @@ async function PaymentContent({ params }: Pick<PageProps<"/siparis/[numara]/odem
         )}
         {!provider && (
           <Alert tone="warning" title="Online ödeme henüz aktif değil">
-            Ödeme altyapısı yapılandırıldığında bu sayfadan ödemeni tamamlayabilirsin. Siparişin kayıtlı ve müşteri panelinde görünüyor.
+            Ödeme altyapısı yapılandırıldığında bu sayfadan ödemeni tamamlayabilirsin. Siparişin kayıtlı ve müşteri panelinde görünüyor.{" "}
+            <Link href={`/panel/siparislerim/${order.number}`} className="font-semibold underline">
+              Siparişine git
+            </Link>
           </Alert>
         )}
         {provider === "MOCK" && (
@@ -106,6 +113,11 @@ async function PaymentContent({ params }: Pick<PageProps<"/siparis/[numara]/odem
           <p className="mt-1 text-sm text-muted">
             {order.song.artistName} – {order.song.title}
           </p>
+          {order.trialApplication && (
+            <Link href="/panel/deneme/satin-al" className="mt-2 inline-block text-sm font-semibold text-brand hover:underline">
+              Farklı paket seç
+            </Link>
+          )}
           <dl className="mt-5 space-y-2.5 text-sm">
             {[
               ["Paket süresi", `${snapshot.durationMonths} ay`],

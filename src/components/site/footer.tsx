@@ -25,6 +25,7 @@ export async function SiteFooter() {
       title: "Hizmet",
       links: [
         { href: "/paketler", label: t.footer.packages },
+        { href: "/ucretsiz-deneme", label: "Ücretsiz Dene" },
         { href: "/ornekler", label: t.nav.examples },
         { href: "/#nasil-calisir", label: t.nav.howItWorks },
         { href: "/sss", label: t.footer.faq },
@@ -39,6 +40,7 @@ export async function SiteFooter() {
         { href: "/kvkk-aydinlatma-metni", label: t.footer.kvkk },
         { href: "/mesafeli-satis-sozlesmesi", label: t.footer.distanceSales },
         { href: "/on-bilgilendirme-formu", label: t.footer.preInfo },
+        { href: "/ucretsiz-deneme-kosullari", label: "Ücretsiz Deneme Koşulları" },
       ],
     },
   ];

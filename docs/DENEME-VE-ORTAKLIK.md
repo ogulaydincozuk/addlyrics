@@ -54,7 +54,7 @@ Aşamalar (`TrialStage`): Başvuru alındı → Dosyalar kontrol ediliyor ⇄ Ek
 ## 5. İş ortaklığı, referans kodları ve komisyon
 
 - **Yalnızca yöneticiler** iş ortağı ve kod oluşturur/düzenler (kontrol hem sayfada hem servis katmanında; testle doğrulanır). İş ortakları kod üretemez, oranı değiştiremez.
-- Kod alanları: kod (benzersiz, büyük harf), iş ortağı, indirim (% veya TL), komisyon oranı, **komisyon tabanı** (liste fiyatı / tahsil edilen tutar / KDV hariç tahsilat — her kodda açıkça seçilir, varsayılan yok), başlangıç-bitiş, kullanım limiti, aktiflik, geçerli paketler.
+- Kod alanları: kod (benzersiz, büyük harf), iş ortağı, indirim (% veya TL), genel komisyon oranı, **paket bazında komisyon oranı** (isteğe bağlı; ör. genel %10, 3 aylık pakette %7,5 — boş paketlerde genel oran geçerlidir, ödeme anında siparişin paketine göre seçilir ve kullanılan oran komisyon kaydında saklanır), **komisyon tabanı** (liste fiyatı / tahsil edilen tutar / KDV hariç tahsilat — her kodda açıkça seçilir, varsayılan yok), başlangıç-bitiş, kullanım limiti, aktiflik, geçerli paketler.
 - Müşteri kodu **ödeme sayfasında** girer; doğrulama ve indirim sunucuda hesaplanır, sipariş kaydına liste fiyatı, indirim, kod ve iş ortağı yazılır. Ödeme başlatılırken kod yeniden doğrulanır. Kendi kodunu kullanmak engellenir.
 - Komisyon yalnızca **doğrulanmış ödemede** oluşur (sipariş başına bir kayıt), hesaplama dökümüyle saklanır. Durumlar: Beklemede → Onaylandı → Ödendi · İptal edildi.
   - Onay için iade/cayma süresi (Sistem Ayarları, varsayılan 14 gün) dolmalı.
@@ -95,5 +95,13 @@ Erişim: `/admin` — yalnızca `ADMIN` rolü; yetki her sayfada ve her sunucu e
 ## 9. Migration ve geri alma
 
 - Migration: `prisma/migrations/20261017150000_trial_partners_announcements` (yalnızca ekleme; mevcut veri değişmez). CHECK kısıtları migration SQL'inin sonundadır.
+- Migration: `prisma/migrations/20261017220000_referral_package_rates` — pakete özel komisyon oranları tablosu (yalnızca ekleme). Geri alma: `docs/rollback/20261017220000_referral_package_rates.down.sql`.
 - Geri alma: `docs/rollback/20261017150000_trial_partners_announcements.down.sql` (yeni tabloları/sütunları kaldırır; enum değerleri PostgreSQL'de kaldırılamadığı için yerinde kalır. Migration bu değerleri `ADD VALUE IF NOT EXISTS` ile eklediği için geri alma sonrası yeniden uygulanabilir — test veritabanında denendi). Uygulamadan önce yedek alın ve bir önceki uygulama sürümüne dönün.
 - İçerik güncellemesi (deneme koşulları sayfası + KVKK taslağı): `npx tsx prisma/scripts/2026-10-trial-content.ts`.
+
+## 10. Paylaşım bağlantısı ve kolay erişim (Ekim 2026)
+
+- İş ortağı panelinde her geçerli kod için paylaşım bağlantısı (`/paketler?kod=KOD`), "Kodu kopyala" ve "Paylaşım metnini kopyala" düğmeleri bulunur.
+- Bağlantıyla gelen ziyaretçinin kodu tarayıcıda 30 gün saklanır; sipariş özetine geçerken kod otomatik doldurulup kontrol edilir, ödeme sayfasındaki kod alanına da önceden yazılır. İndirim ve komisyon her zaman sunucuda doğrulanır.
+- Müşteri sipariş özetinde (canlı indirim önizlemesiyle) veya ödeme sayfasının en üstünde kod girebilir.
+- Müşteri mesajları yönetimde **Mesajlar** gelen kutusunda (yanıt bekleyenler üstte, menüde sayı rozeti) ve sipariş sayfasındaki "Müşteriyle mesajlaşma" bölümünde görünür; ekip sorusu yanıt bekleyen müşteriye panelde uyarı ve menü rozeti gösterilir.

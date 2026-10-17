@@ -7,10 +7,19 @@ import { Field, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/primitives";
 import { FileUploader, type FileRuleInfo } from "@/components/upload/file-uploader";
 import type { UploadedFileInfo } from "@/components/upload/upload-client";
-import { initialActionState } from "@/lib/action-state";
+import { formValues, initialActionState, type ActionState } from "@/lib/action-state";
 import { cn } from "@/lib/cn";
 import type { FileKindValue } from "@/lib/enums";
 import { resubmitTrialAction, startTrialPurchase } from "./actions";
+
+/**
+ * React 19 form eylemi bitince alanları sıfırlar (hata olsa bile). Hata durumunda yazılanlar
+ * kaybolmasın diye gönderilen değerler duruma eklenir ve alanlar bunlarla yeniden doldurulur.
+ */
+async function resubmitKeepingValues(prev: ActionState, formData: FormData): Promise<ActionState> {
+  const result = await resubmitTrialAction(prev, formData);
+  return result.ok ? result : { ...result, values: formValues(formData, ["lyrics", "notesForEditor", "message"]) };
+}
 
 /** Eksik bilgi istendiğinde: sözleri düzelt, dosya ekle, ekibe not yaz ve yeniden gönder. */
 export function TrialResubmitForm({
@@ -26,7 +35,8 @@ export function TrialResubmitForm({
   rules: Record<FileKindValue, FileRuleInfo>;
   files: UploadedFileInfo[];
 }) {
-  const [state, action, pending] = useActionState(resubmitTrialAction, initialActionState);
+  const [state, action, pending] = useActionState(resubmitKeepingValues, initialActionState);
+  const v = state.values ?? {};
   const [uploaded, setUploaded] = useState<Record<string, UploadedFileInfo[]>>({
     SONG_AUDIO: files.filter((f) => f.kind === "SONG_AUDIO"),
     MUSIC_VIDEO: files.filter((f) => f.kind === "MUSIC_VIDEO"),
@@ -38,7 +48,7 @@ export function TrialResubmitForm({
   return (
     <form action={action} className="space-y-5">
       <Field label="Şarkı sözleri" htmlFor="lyrics" error={state.errors?.lyrics}>
-        <Textarea id="lyrics" name="lyrics" rows={8} defaultValue={lyrics} maxLength={20000} />
+        <Textarea id="lyrics" name="lyrics" rows={8} defaultValue={v.lyrics ?? lyrics} maxLength={20000} aria-invalid={!!state.errors?.lyrics} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <FileUploader kind="SONG_AUDIO" rule={rules.SONG_AUDIO} label="Ses dosyası" trialId={trialId} files={uploaded.SONG_AUDIO ?? []} onChange={setter("SONG_AUDIO")} />
@@ -46,11 +56,11 @@ export function TrialResubmitForm({
         <FileUploader kind="IMAGE" rule={rules.IMAGE} label="Görseller" multiple maxFiles={10} trialId={trialId} files={uploaded.IMAGE ?? []} onChange={setter("IMAGE")} />
         <FileUploader kind="FOOTAGE" rule={rules.FOOTAGE} label="Görüntüler" multiple maxFiles={5} trialId={trialId} files={uploaded.FOOTAGE ?? []} onChange={setter("FOOTAGE")} />
       </div>
-      <Field label="Editöre notun" htmlFor="notesForEditor" optional>
-        <Textarea id="notesForEditor" name="notesForEditor" rows={3} defaultValue={notes} maxLength={4000} />
+      <Field label="Editöre notun" htmlFor="notesForEditor" optional error={state.errors?.notesForEditor}>
+        <Textarea id="notesForEditor" name="notesForEditor" rows={3} defaultValue={v.notesForEditor ?? notes} maxLength={4000} />
       </Field>
-      <Field label="Ekibe mesajın" htmlFor="message" optional>
-        <Textarea id="message" name="message" rows={2} maxLength={2000} placeholder="Neyi düzelttiğini kısaca yaz." />
+      <Field label="Ekibe mesajın" htmlFor="message" optional error={state.errors?.message}>
+        <Textarea id="message" name="message" rows={2} defaultValue={v.message} maxLength={2000} placeholder="Neyi düzelttiğini kısaca yaz." />
       </Field>
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>

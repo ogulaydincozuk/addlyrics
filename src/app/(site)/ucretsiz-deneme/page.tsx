@@ -81,7 +81,7 @@ async function TrialEntry() {
     return (
       <>
         <h2 className="mb-6 text-xl font-bold text-ink">Deneme başvurusu</h2>
-        <TrialWizard rules={publicFileRules()} previewHours={settings.previewTargetHours} />
+        <TrialWizard rules={publicFileRules()} previewHours={settings.previewTargetHours} userId={user?.id} />
       </>
     );
   }

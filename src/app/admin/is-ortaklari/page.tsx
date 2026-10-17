@@ -24,7 +24,7 @@ async function Partners() {
   const [partners, sums] = await Promise.all([
     db.partner.findMany({
       orderBy: { createdAt: "desc" },
-      include: { codes: { select: { code: true, active: true } }, user: { select: { email: true } }, _count: { select: { orders: true } } },
+      include: { codes: { select: { id: true, code: true, active: true } }, user: { select: { email: true } }, _count: { select: { orders: true } } },
     }),
     db.commission.groupBy({ by: ["partnerId", "status"], _sum: { amountKurus: true } }),
   ]);
@@ -57,17 +57,21 @@ async function Partners() {
               <Td>
                 <div className="flex flex-wrap gap-1">
                   {p.codes.map((c) => (
-                    <Badge key={c.code} tone={c.active ? "brand" : "neutral"}>
-                      {c.code}
-                    </Badge>
+                    <Link key={c.id} href={`/admin/referans-kodlari/${c.id}`} aria-label={`${c.code} kodunu aç`}>
+                      <Badge tone={c.active ? "brand" : "neutral"}>{c.code}</Badge>
+                    </Link>
                   ))}
                   {p.codes.length === 0 && <span className="text-muted">—</span>}
                 </div>
               </Td>
               <Td>{p._count.orders}</Td>
-              <Td>{formatMoney(sum(p.id, "PENDING"))}</Td>
-              <Td>{formatMoney(sum(p.id, "APPROVED"))}</Td>
-              <Td>{formatMoney(sum(p.id, "PAID"))}</Td>
+              {(["PENDING", "APPROVED", "PAID"] as const).map((s) => (
+                <Td key={s}>
+                  <Link href={`/admin/komisyonlar?ortak=${p.id}&durum=${s}`} className="hover:text-brand hover:underline">
+                    {formatMoney(sum(p.id, s))}
+                  </Link>
+                </Td>
+              ))}
             </tr>
           ))}
           {partners.length === 0 && (

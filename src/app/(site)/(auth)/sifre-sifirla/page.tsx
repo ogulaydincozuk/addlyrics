@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { Alert } from "@/components/ui/primitives";
 import { messages } from "@/i18n/config";
@@ -21,6 +22,15 @@ export default function ResetPasswordPage({ searchParams }: PageProps<"/sifre-si
 async function ResetContent({ searchParams }: Pick<PageProps<"/sifre-sifirla">, "searchParams">) {
   const params = await searchParams;
   const token = typeof params.token === "string" ? params.token : "";
-  if (!token) return <Alert tone="danger">{messages().auth.resetInvalid}</Alert>;
+  if (!token) {
+    return (
+      <Alert tone="danger">
+        {messages().auth.resetInvalid}{" "}
+        <Link href="/sifremi-unuttum" className="font-semibold underline">
+          Yeni bağlantı iste
+        </Link>
+      </Alert>
+    );
+  }
   return <ResetPasswordForm token={token} />;
 }

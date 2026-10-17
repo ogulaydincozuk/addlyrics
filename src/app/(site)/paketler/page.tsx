@@ -32,6 +32,13 @@ export default async function PackagesPage() {
           </Alert>
         )}
         <PackageCards packages={packages} headingLevel="h2" />
+        <p className="mx-auto mt-8 max-w-2xl rounded-2xl border border-dashed border-line bg-card px-5 py-4 text-center text-sm text-ink-soft">
+          Karar vermeden önce görmek mi istiyorsun?{" "}
+          <Link href="/ucretsiz-deneme" className="font-semibold text-brand hover:underline">
+            Şarkın için 3 videoyu ücretsiz dene
+          </Link>
+          .
+        </p>
 
         {packages.length > 1 && <ComparisonTable packages={packages} />}
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Download, PlayCircle } from "lucide-react";
+import { LinkButton } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/primitives";
 import { formatBytes } from "@/components/upload/upload-client";
 import { messages } from "@/i18n/config";
@@ -28,7 +29,12 @@ async function Deliveries() {
       <EmptyState
         icon={<PlayCircle className="size-6" />}
         title="Henüz teslim edilen video yok"
-        description="Videoların hazır olduğunda burada izleyip indirebilirsin."
+        description="Videoların hazır olduğunda burada izleyip indirebilirsin. Siparişlerinin durumunu Siparişlerim sayfasından takip edebilirsin."
+        action={
+          <LinkButton href="/panel/siparislerim" variant="secondary">
+            Siparişlerim
+          </LinkButton>
+        }
       />
     );
   }

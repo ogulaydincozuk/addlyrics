@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Alert } from "@/components/ui/primitives";
+import { ArrowLeft } from "lucide-react";
+import { OrderStatusBadge } from "@/components/order/status-badge";
+import { Alert, Badge } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
+import { COMMISSION_STATUS_LABEL } from "@/lib/referral";
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
 import { ActionForm } from "../../_forms";
@@ -15,9 +18,14 @@ export const metadata: Metadata = { title: "Referans Kodu" };
 
 export default function ReferralCodePage({ params }: PageProps<"/admin/referans-kodlari/[id]">) {
   return (
-    <AdminPage title="Referans Kodu">
-      <CodeDetail params={params} />
-    </AdminPage>
+    <div>
+      <Link href="/admin/referans-kodlari" className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-brand">
+        <ArrowLeft className="size-4" aria-hidden /> Referans kodları
+      </Link>
+      <AdminPage title="Referans Kodu">
+        <CodeDetail params={params} />
+      </AdminPage>
+    </div>
   );
 }
 
@@ -27,7 +35,9 @@ async function CodeDetail({ params }: Pick<PageProps<"/admin/referans-kodlari/[i
   const code = await db.referralCode.findUnique({
     where: { id },
     include: {
+      partner: { select: { id: true, name: true, active: true } },
       packages: { select: { id: true } },
+      packageRates: { select: { packageId: true, commissionRateBps: true } },
       orders: {
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -43,7 +53,21 @@ async function CodeDetail({ params }: Pick<PageProps<"/admin/referans-kodlari/[i
 
   return (
     <div className="space-y-6">
-      <Section title={code.code}>
+      <Section
+        title={code.code}
+        actions={
+          <span className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted">İş ortağı:</span>
+            <Link href={`/admin/is-ortaklari/${code.partner.id}`} className="font-semibold text-brand hover:underline">
+              {code.partner.name}
+            </Link>
+            {!code.partner.active && <Badge>İş ortağı pasif</Badge>}
+            <Link href={`/admin/komisyonlar?ortak=${code.partner.id}`} className="text-brand hover:underline">
+              Komisyonlar →
+            </Link>
+          </span>
+        }
+      >
         {code.usageCount > 0 && (
           <Alert tone="info" className="mb-4">
             Bu kod kullanıldı. Değişiklikler yalnızca yeni siparişlere uygulanır; geçmiş komisyonlar sipariş anındaki değerlerle saklanır. Kodun metni değiştirilemez.
@@ -65,6 +89,7 @@ async function CodeDetail({ params }: Pick<PageProps<"/admin/referans-kodlari/[i
               usageLimit: code.usageLimit,
               active: code.active,
               packageIds: code.packages.map((p) => p.id),
+              packageRates: Object.fromEntries(code.packageRates.map((r) => [r.packageId, r.commissionRateBps])),
             }}
           />
         </ActionForm>
@@ -89,11 +114,15 @@ async function CodeDetail({ params }: Pick<PageProps<"/admin/referans-kodlari/[i
                   </Link>
                 </Td>
                 <Td>{formatDate(o.createdAt)}</Td>
-                <Td>{o.status}</Td>
+                <Td>
+                  <OrderStatusBadge status={o.status} />
+                </Td>
                 <Td>
                   {formatMoney(o.priceKurus, o.currency)} <span className="text-xs text-muted">(−{formatMoney(o.discountKurus, o.currency)})</span>
                 </Td>
-                <Td>{o.commission ? `${formatMoney(o.commission.amountKurus)} · ${o.commission.status}` : <span className="text-muted">Ödeme yok</span>}</Td>
+                <Td>
+                  {o.commission ? `${formatMoney(o.commission.amountKurus)} · ${COMMISSION_STATUS_LABEL[o.commission.status]}` : <span className="text-muted">Ödeme yok</span>}
+                </Td>
               </tr>
             ))}
             {code.orders.length === 0 && (

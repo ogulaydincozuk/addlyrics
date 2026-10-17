@@ -93,6 +93,17 @@ export function bpsLabel(bps: number) {
   return `%${pct.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Siparişin paketi için geçerli komisyon oranı: kodda o pakete özel oran varsa o, yoksa kodun genel oranı.
+ */
+export function commissionRateForPackage(
+  code: { commissionRateBps: number; packageRates?: Array<{ packageId: string; commissionRateBps: number }> },
+  packageId: string,
+): { rateBps: number; source: "PACKAGE" | "DEFAULT" } {
+  const special = code.packageRates?.find((r) => r.packageId === packageId);
+  return special ? { rateBps: special.commissionRateBps, source: "PACKAGE" } : { rateBps: code.commissionRateBps, source: "DEFAULT" };
+}
+
 /** "%10" / "10" / "12,5" → baz puan */
 export function parsePercentToBps(input: string) {
   const cleaned = String(input ?? "").replace("%", "").replace(",", ".").trim();

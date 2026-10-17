@@ -16,6 +16,7 @@ import {
   createPartnerLogin,
   createReferralCode,
   recordCommissionPayout,
+  resendPartnerLogin,
   setReferralCodeActive,
   updatePartner,
   updateReferralCode,
@@ -84,6 +85,14 @@ export async function createPartnerLoginAction(partnerId: string, _prev: ActionS
   });
 }
 
+export async function resendPartnerLoginAction(partnerId: string, _prev: ActionState, _fd: FormData) {
+  return run(async (admin) => {
+    const r = await resendPartnerLogin(admin, partnerId);
+    if (!r.emailSent) throw new DomainError(`E-posta ${r.email} adresine gönderilemedi. E-posta ayarlarını kontrol edip tekrar deneyin.`);
+    return `Şifre belirleme bağlantısı ${r.email} adresine yeniden gönderildi (72 saat geçerli).`;
+  });
+}
+
 function codeInput(fd: FormData): ReferralCodeInput {
   const discountType = str(fd, "discountType") as DiscountType;
   if (discountType !== "PERCENT" && discountType !== "FIXED") throw new DomainError("İndirim türünü seçin.");
@@ -101,6 +110,16 @@ function codeInput(fd: FormData): ReferralCodeInput {
   if (usageLimit != null && (!Number.isInteger(usageLimit) || usageLimit < 1)) throw new DomainError("Kullanım limiti pozitif tam sayı olmalı.");
   const partnerId = str(fd, "partnerId");
   if (!partnerId) throw new DomainError("İş ortağını seçin.");
+  // Pakete özel oranlar: boş alanlarda genel oran geçerlidir
+  const packageRates: Array<{ packageId: string; commissionRateBps: number }> = [];
+  for (const [key, value] of fd.entries()) {
+    if (!key.startsWith("packageRate_")) continue;
+    const raw = String(value).trim();
+    if (!raw) continue;
+    const bps = parsePercentToBps(raw);
+    if (bps == null) throw new DomainError("Paket komisyon oranlarını yüzde olarak yazın (ör. 7,5) veya boş bırakın.");
+    packageRates.push({ packageId: key.slice("packageRate_".length), commissionRateBps: bps });
+  }
   return {
     code: str(fd, "code"),
     partnerId,
@@ -113,6 +132,7 @@ function codeInput(fd: FormData): ReferralCodeInput {
     usageLimit,
     active: fd.get("active") === "on",
     packageIds: fd.getAll("packageIds").map(String).filter(Boolean),
+    packageRates,
   };
 }
 

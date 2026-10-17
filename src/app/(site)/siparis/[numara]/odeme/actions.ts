@@ -13,18 +13,20 @@ import { refresh } from "next/cache";
 
 /** İndirim/referans kodu: doğrulama ve indirim hesabı sunucuda yapılır. */
 export async function applyCodeAction(orderNumber: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  // Hata durumunda yazılan kod alanda kalsın diye geri döndürülür
+  const values = formValues(formData, ["code"]);
   const user = await getSessionUser();
-  if (!user) return { ok: false, message: "Oturumun sona ermiş. Lütfen tekrar giriş yap." };
+  if (!user) return { ok: false, message: "Oturumun sona ermiş. Lütfen tekrar giriş yap.", values };
   const limit = await rateLimitByIp("referralApply", user.id);
-  if (!limit.ok) return { ok: false, message: "Çok fazla kod denemesi yapıldı. Lütfen biraz sonra tekrar dene." };
+  if (!limit.ok) return { ok: false, message: "Çok fazla kod denemesi yapıldı. Lütfen biraz sonra tekrar dene.", values };
   try {
     const result = await applyReferralCodeToOrder(user.id, orderNumber, String(formData.get("code") ?? ""));
     refresh();
     return { ok: true, message: `${result.code} kodu uygulandı.` };
   } catch (err) {
-    if (isDomainError(err)) return { ok: false, message: err.message };
+    if (isDomainError(err)) return { ok: false, message: err.message, values };
     console.error("[referral:apply]", err);
-    return { ok: false, message: "Kod uygulanamadı. Lütfen tekrar dene." };
+    return { ok: false, message: "Kod uygulanamadı. Lütfen tekrar dene.", values };
   }
 }
 
@@ -36,7 +38,8 @@ export async function removeCodeAction(orderNumber: string) {
 }
 
 export async function startPaymentAction(orderNumber: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  const values = formValues(formData, ["billingName", "billingPhone", "billingCity", "billingAddress", "billingIdentityNumber"]);
+  // distanceSales: işaretliyse "on" — hata sonrası onay kutusu da korunur (doğrulama aşağıda formData'dan yapılır)
+  const values = formValues(formData, ["billingName", "billingPhone", "billingCity", "billingAddress", "billingIdentityNumber", "distanceSales"]);
   const user = await getSessionUser();
   if (!user) return { ok: false, message: "Oturumun sona ermiş. Lütfen tekrar giriş yap.", values };
 

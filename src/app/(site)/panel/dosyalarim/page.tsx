@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileStack } from "lucide-react";
+import { FileStack, PlusCircle } from "lucide-react";
+import { LinkButton } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/primitives";
 import { formatBytes } from "@/components/upload/upload-client";
 import { messages } from "@/i18n/config";
 import { formatDate } from "@/lib/dates";
 import { requireUser } from "@/server/auth/guards";
-import { getFiles } from "@/server/queries/customer";
-import { PanelPage } from "../_components";
+import { getEntitlements, getFiles } from "@/server/queries/customer";
+import { entitlementState, PanelPage } from "../_components";
 
 export const metadata: Metadata = { title: "Dosyalarım" };
 
@@ -23,7 +24,26 @@ async function Files() {
   const user = await requireUser("/panel/dosyalarim");
   const files = await getFiles(user.id);
   const t = messages();
-  if (!files.length) return <EmptyState icon={<FileStack className="size-6" />} title="Henüz dosya yüklemedin" />;
+  if (!files.length) {
+    // Kullanılabilir paket hakkı varsa doğrudan şarkı gönderme adımına, yoksa paketlere yönlendir
+    const hasUsable = (await getEntitlements(user.id)).some((e) => entitlementState(e).usable);
+    return (
+      <EmptyState
+        icon={<FileStack className="size-6" />}
+        title="Henüz dosya yüklemedin"
+        description={hasUsable ? "Yeni bir şarkı gönderirken yüklediğin dosyalar burada listelenir." : "Bir paket seçip şarkını gönderdiğinde yüklediğin dosyalar burada listelenir."}
+        action={
+          hasUsable ? (
+            <LinkButton href="/panel/yeni-siparis" icon={<PlusCircle className="size-4" aria-hidden />}>
+              Yeni Şarkı Gönder
+            </LinkButton>
+          ) : (
+            <LinkButton href="/paketler">Paketleri İncele</LinkButton>
+          )
+        }
+      />
+    );
+  }
   return (
     <div className="relative overflow-x-auto rounded-2xl border border-line bg-card">
       <table className="w-full min-w-[560px] text-left text-sm">

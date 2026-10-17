@@ -42,7 +42,11 @@ export type CodeDefaults = {
   usageLimit: number | null;
   active: boolean;
   packageIds: string[];
+  /** Pakete özel komisyon oranları: paket kimliği → baz puan */
+  packageRates?: Record<string, number>;
 };
+
+const pctInput = (bps: number | undefined) => (bps == null ? "" : String(bps / 100).replace(".", ","));
 
 export function CodeFields({
   partners,
@@ -89,7 +93,7 @@ export function CodeFields({
       <Field label="İndirim değeri" htmlFor="discountValue" hint="Yüzde için 10, tutar için 250,00 gibi. İndirim yoksa 0.">
         <Input id="discountValue" name="discountValue" defaultValue={discountShown} inputMode="decimal" required />
       </Field>
-      <Field label="Komisyon oranı (%)" htmlFor="commissionRate" hint="Ticari anlaşmadaki oran. Varsayılan yoktur.">
+      <Field label="Genel komisyon oranı (%)" htmlFor="commissionRate" hint="Ticari anlaşmadaki oran; aşağıda ayrı oran yazılmayan tüm paketlere uygulanır. Varsayılan yoktur.">
         <Input id="commissionRate" name="commissionRate" defaultValue={defaults ? String(defaults.commissionRateBps / 100).replace(".", ",") : ""} inputMode="decimal" required />
       </Field>
       <Field label="Komisyon hangi tutar üzerinden?" htmlFor="commissionBase" hint="Yönetici açıkça seçmelidir; KDV oranı Sistem Ayarları'ndadır.">
@@ -102,6 +106,23 @@ export function CodeFields({
           ))}
         </Select>
       </Field>
+      <fieldset className="rounded-2xl border border-line p-4 sm:col-span-2">
+        <legend className="px-1 text-sm font-semibold text-ink">Paket bazında komisyon oranı (%)</legend>
+        <p className="text-xs text-muted">Boş bırakılan paketlerde genel oran geçerlidir. Ör. genel oran 10 iken yalnızca 3 aylık paket için 7,5 yazın.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {packages.map((p) => (
+            <Field key={p.id} label={p.name} htmlFor={`packageRate_${p.id}`} optional>
+              <Input
+                id={`packageRate_${p.id}`}
+                name={`packageRate_${p.id}`}
+                defaultValue={pctInput(defaults?.packageRates?.[p.id])}
+                inputMode="decimal"
+                placeholder="Genel oran"
+              />
+            </Field>
+          ))}
+        </div>
+      </fieldset>
       <Field label="Başlangıç" htmlFor="startsAt" optional>
         <Input id="startsAt" name="startsAt" type="date" defaultValue={toDateInputValue(defaults?.startsAt ?? null)} />
       </Field>

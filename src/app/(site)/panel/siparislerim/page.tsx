@@ -3,7 +3,7 @@ import { ListMusic } from "lucide-react";
 import { LinkButton } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/primitives";
 import { requireUser } from "@/server/auth/guards";
-import { getOrders } from "@/server/queries/customer";
+import { getOrders, getPanelAttention } from "@/server/queries/customer";
 import { OrderRow, PanelPage } from "../_components";
 
 export const metadata: Metadata = { title: "Siparişlerim" };
@@ -18,7 +18,8 @@ export default function OrdersPage() {
 
 async function Orders() {
   const user = await requireUser("/panel/siparislerim");
-  const orders = await getOrders(user.id);
+  const [orders, attention] = await Promise.all([getOrders(user.id), getPanelAttention(user.id)]);
+  const awaiting = new Set(attention.awaitingReply.map((a) => a.number));
   if (!orders.length) {
     return (
       <EmptyState
@@ -32,7 +33,7 @@ async function Orders() {
   return (
     <div className="space-y-3">
       {orders.map((o) => (
-        <OrderRow key={o.id} order={o} />
+        <OrderRow key={o.id} order={o} awaitingReply={awaiting.has(o.number)} />
       ))}
     </div>
   );

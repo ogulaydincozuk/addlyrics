@@ -29,14 +29,16 @@ export async function markNotificationsRead() {
 /** Siparişle ilgili ekibe mesaj (ekibin üretim öncesi sorularına yanıt). */
 export async function sendOrderMessage(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await currentUser();
+  // Hata durumunda yazılan mesaj kaybolmasın diye geri döndürülür
+  const values = { message: String(formData.get("message") ?? "") };
   const parsed = orderMessageSchema.safeParse({ orderNumber: formData.get("orderNumber"), message: formData.get("message") });
-  if (!parsed.success) return { ok: false, errors: flattenErrors(parsed.error) };
+  if (!parsed.success) return { ok: false, errors: flattenErrors(parsed.error), values };
   const limit = await rateLimitByIp("orderMessage", user.id);
-  if (!limit.ok) return { ok: false, message: "Çok fazla mesaj gönderildi. Lütfen biraz sonra tekrar dene." };
+  if (!limit.ok) return { ok: false, message: "Çok fazla mesaj gönderildi. Lütfen biraz sonra tekrar dene.", values };
   try {
     await sendCustomerMessage(user.id, parsed.data.orderNumber, parsed.data.message);
   } catch (err) {
-    if (isDomainError(err)) return { ok: false, message: err.message };
+    if (isDomainError(err)) return { ok: false, message: err.message, values };
     throw err;
   }
   refresh();
@@ -48,12 +50,13 @@ const lyricsSchema = z.object({ orderNumber: z.string().min(1).max(40), lyrics: 
 /** Sözler eksikse müşteri sipariş üretime girmeden önce ekleyebilir/güncelleyebilir. */
 export async function updateLyrics(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await currentUser();
+  const values = { lyrics: String(formData.get("lyrics") ?? "") };
   const parsed = lyricsSchema.safeParse({ orderNumber: formData.get("orderNumber"), lyrics: formData.get("lyrics") });
-  if (!parsed.success) return { ok: false, message: "Sözler kaydedilemedi." };
+  if (!parsed.success) return { ok: false, message: "Sözler kaydedilemedi.", values };
   const order = await db.order.findFirst({ where: { number: parsed.data.orderNumber, userId: user.id } });
-  if (!order) return { ok: false, message: "Sipariş bulunamadı." };
+  if (!order) return { ok: false, message: "Sipariş bulunamadı.", values };
   if (!CUSTOMER_EDITABLE_STATUSES.includes(order.status)) {
-    return { ok: false, message: "Üretimi başlamış siparişte sözler değiştirilemez. Ekibimizle iletişime geç." };
+    return { ok: false, message: "Üretimi başlamış siparişte sözler değiştirilemez. Sipariş sayfandaki Mesajlar bölümünden ekibimize yazabilirsin.", values };
   }
   await db.song.update({ where: { id: order.songId }, data: { lyrics: parsed.data.lyrics || null } });
   await db.orderEvent.create({
@@ -77,18 +80,24 @@ const profileSchema = z.object({
 
 export async function updateProfile(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await currentUser();
+  // Hata durumunda form yazılanlarla yeniden doldurulsun diye gönderilen değerler geri döndürülür
+  const values = {
+    name: String(formData.get("name") ?? ""),
+    artistName: String(formData.get("artistName") ?? ""),
+    phone: String(formData.get("phone") ?? ""),
+  };
   const parsed = profileSchema.safeParse({
     name: formData.get("name"),
     artistName: formData.get("artistName") ?? undefined,
     phone: formData.get("phone") ?? undefined,
   });
-  if (!parsed.success) return { ok: false, errors: flattenErrors(parsed.error) };
+  if (!parsed.success) return { ok: false, errors: flattenErrors(parsed.error), values };
   const record = await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { phone: true, phoneVerifiedAt: true } });
   let phone = record.phone;
   // Doğrulanmış telefon buradan değiştirilemez (telefon başına hesap sınırı); doğrulanmamışsa normalize edilir
   if (!record.phoneVerifiedAt && parsed.data.phone) {
     const normalized = normalizePhone(parsed.data.phone);
-    if (!normalized.ok) return { ok: false, errors: { phone: normalized.error } };
+    if (!normalized.ok) return { ok: false, errors: { phone: normalized.error }, values };
     phone = normalized.e164;
   }
   await db.user.update({

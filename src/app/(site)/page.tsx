@@ -43,13 +43,15 @@ export default async function HomePage() {
           <div className="mt-12">
             <PackageCards packages={packages} />
           </div>
-          <p className="mt-8 text-center text-sm text-muted">
-            Paketleri yan yana karşılaştırmak için{" "}
-            <a href="/paketler#karsilastirma" className="font-semibold text-brand hover:underline">
-              karşılaştırma tablosuna
-            </a>{" "}
-            göz at.
-          </p>
+          {packages.length > 1 && (
+            <p className="mt-8 text-center text-sm text-muted">
+              Paketleri yan yana karşılaştırmak için{" "}
+              <a href="/paketler#karsilastirma" className="font-semibold text-brand hover:underline">
+                karşılaştırma tablosuna
+              </a>{" "}
+              göz at.
+            </p>
+          )}
         </Container>
       </section>
 

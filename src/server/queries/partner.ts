@@ -8,7 +8,11 @@ import { db } from "../db";
  */
 export async function getPartnerDashboard(partnerId: string) {
   const [codes, commissions, payouts, pendingOrders] = await Promise.all([
-    db.referralCode.findMany({ where: { partnerId }, include: { packages: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
+    db.referralCode.findMany({
+      where: { partnerId },
+      include: { packages: { select: { name: true } }, packageRates: { select: { commissionRateBps: true, package: { select: { name: true, sortOrder: true } } } } },
+      orderBy: { createdAt: "desc" },
+    }),
     db.commission.findMany({
       where: { partnerId },
       orderBy: { createdAt: "desc" },
@@ -18,6 +22,7 @@ export async function getPartnerDashboard(partnerId: string) {
         status: true,
         amountKurus: true,
         clawbackAt: true,
+        eligibleAt: true,
         createdAt: true,
         referralCode: { select: { code: true } },
         payment: { select: { status: true } },

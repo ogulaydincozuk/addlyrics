@@ -111,8 +111,11 @@ export function EntitlementCard({
 
 export function OrderRow({
   order,
+  awaitingReply = false,
 }: {
   order: { number: string; status: OrderStatusValue; createdAt: Date; videoCount: number; song: { artistName: string; title: string }; dueDate?: Date | null };
+  /** Ekip soru sordu, müşterinin yanıtı bekleniyor */
+  awaitingReply?: boolean;
 }) {
   return (
     <Link
@@ -129,7 +132,10 @@ export function OrderRow({
             {order.dueDate ? ` · Planlanan teslim: ${formatDate(order.dueDate)}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {awaitingReply && (
+            <span className="rounded-full bg-warning-soft px-2.5 py-0.5 text-xs font-semibold text-[#92400e] ring-1 ring-[#fde68a]">Yanıtın bekleniyor</span>
+          )}
           <OrderStatusBadge status={order.status} />
           <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" aria-hidden />
         </div>

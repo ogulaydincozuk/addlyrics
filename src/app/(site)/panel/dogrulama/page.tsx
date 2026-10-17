@@ -24,10 +24,22 @@ async function Verification({ searchParams }: Pick<PageProps<"/panel/dogrulama">
   const next = safeNextPath(typeof sp.next === "string" ? sp.next : null, "/panel");
   const status = await verificationStatus(user.id);
   const done = status.emailVerified && status.phoneVerified;
+  // Paket satın almak doğrulama gerektirmez: kayıttan sonra siparişe/başka sayfaya dönüş her zaman açık
+  const canSkip = !done && next !== "/panel" && !next.startsWith("/ucretsiz-deneme");
 
   return (
     <div className="space-y-6">
       {sp.eposta === "ok" && <Alert tone="success">E-posta adresin doğrulandı.</Alert>}
+      {canSkip && (
+        <Alert tone="info" title="Doğrulamayı sonra da yapabilirsin">
+          Paket satın almak için doğrulama gerekmez; ücretsiz deneme için gereklidir.
+          <div className="mt-2">
+            <LinkButton href={next} size="sm" variant="secondary" icon={null}>
+              Şimdilik atla, devam et <ArrowRight className="size-4" aria-hidden />
+            </LinkButton>
+          </div>
+        </Alert>
+      )}
       {done && (
         <Alert tone="success" title="Hesabın doğrulandı">
           <div className="mt-2">

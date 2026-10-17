@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { TicketPercent, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { initialActionState } from "@/lib/action-state";
 import { cn } from "@/lib/cn";
+import { readStoredReferralCode } from "@/lib/referral-link";
 import { applyCodeAction } from "./actions";
 
 export function ReferralCodeForm({
@@ -20,6 +21,12 @@ export function ReferralCodeForm({
   remove: () => Promise<void>;
 }) {
   const [state, action, pending] = useActionState(applyCodeAction.bind(null, orderNumber), initialActionState);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // İş ortağı bağlantısıyla gelindiyse kod alana önceden yazılır; uygulamak müşterinin elindedir
+  useEffect(() => {
+    const stored = readStoredReferralCode();
+    if (stored && inputRef.current && !inputRef.current.value) inputRef.current.value = stored;
+  }, [appliedCode]);
 
   if (appliedCode) {
     return (
@@ -40,7 +47,18 @@ export function ReferralCodeForm({
       </label>
       <p className="text-xs text-muted">İş ortaklarımızdan veya bir kampanyadan aldığın kodu yaz; indirim toplam tutara hemen yansır.</p>
       <div className="flex gap-2">
-        <Input id="code" name="code" autoComplete="off" autoCapitalize="characters" maxLength={30} placeholder="KOD" className="uppercase" />
+        {/* Hata sonrası React formu sıfırlar; yazılan kod sunucunun döndürdüğü değerle geri gelir */}
+        <Input
+          ref={inputRef}
+          id="code"
+          name="code"
+          autoComplete="off"
+          autoCapitalize="characters"
+          maxLength={30}
+          placeholder="KOD"
+          className="uppercase"
+          defaultValue={state.values?.code}
+        />
         <Button type="submit" variant="secondary" size="sm" disabled={pending} className="shrink-0">
           {pending ? "…" : "Uygula"}
         </Button>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { MailCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import { Alert, Card, Container } from "@/components/ui/primitives";
 import { safeNextPath } from "@/server/auth/guards";
 import { confirmEmailToken } from "@/server/verification/service";
@@ -34,19 +34,26 @@ async function ConfirmEmail({ searchParams }: Pick<PageProps<"/e-posta-dogrula">
   const token = typeof sp.token === "string" ? sp.token : "";
   const next = safeNextPath(typeof sp.next === "string" ? sp.next : null, "/panel");
   const failed = sp.hata === "1";
+  // Hata sonrası da kullanıcı gitmek istediği sayfaya dönebilsin diye "next" korunur
+  const nextQuery = typeof sp.next === "string" ? `next=${encodeURIComponent(next)}` : "";
 
   async function confirm() {
     "use server";
     const userId = await confirmEmailToken(token);
-    if (!userId) redirect(`/e-posta-dogrula?hata=1`);
+    if (!userId) redirect(`/e-posta-dogrula?hata=1${nextQuery ? `&${nextQuery}` : ""}`);
     redirect(`/panel/dogrulama?eposta=ok&next=${encodeURIComponent(next)}`);
   }
 
   if (failed || !token) {
     return (
-      <Alert tone="danger" className="mt-6 text-left">
-        Bu doğrulama bağlantısı geçersiz veya süresi dolmuş. Giriş yapıp hesap doğrulama sayfasından yeni bağlantı isteyebilirsin.
-      </Alert>
+      <div className="mt-6">
+        <Alert tone="danger" className="text-left">
+          Bu doğrulama bağlantısı geçersiz veya süresi dolmuş. Giriş yapıp hesap doğrulama sayfasından yeni bağlantı isteyebilirsin.
+        </Alert>
+        <LinkButton href={`/panel/dogrulama${nextQuery ? `?${nextQuery}` : ""}`} className="mt-6">
+          Yeni doğrulama bağlantısı iste
+        </LinkButton>
+      </div>
     );
   }
   return (

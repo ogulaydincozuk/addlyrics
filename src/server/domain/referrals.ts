@@ -3,6 +3,7 @@ import type { CommissionBase, DiscountType, Prisma } from "@prisma/client";
 import { formatMoney } from "@/lib/money";
 import {
   codeAvailability,
+  commissionRateForPackage,
   computeCommission,
   computeDiscount,
   isValidReferralCode,
@@ -132,6 +133,8 @@ export type ReferralCodeInput = {
   usageLimit: number | null;
   active: boolean;
   packageIds: string[];
+  /** Pakete özel komisyon oranları (boş paketlerde genel oran geçerlidir) */
+  packageRates?: Array<{ packageId: string; commissionRateBps: number }>;
 };
 
 function validateCodeInput(input: ReferralCodeInput) {
@@ -142,6 +145,11 @@ function validateCodeInput(input: ReferralCodeInput) {
   }
   if (input.discountType === "FIXED" && input.discountValue < 0) throw new DomainError("İndirim tutarı negatif olamaz.");
   if (input.commissionRateBps < 0 || input.commissionRateBps > 10000) throw new DomainError("Komisyon oranı %0 ile %100 arasında olmalı.");
+  const rates = input.packageRates ?? [];
+  if (rates.some((r) => !Number.isInteger(r.commissionRateBps) || r.commissionRateBps < 0 || r.commissionRateBps > 10000)) {
+    throw new DomainError("Paket komisyon oranları %0 ile %100 arasında olmalı.");
+  }
+  if (new Set(rates.map((r) => r.packageId)).size !== rates.length) throw new DomainError("Bir paket için yalnızca bir komisyon oranı yazılabilir.");
   if (input.startsAt && input.endsAt && input.endsAt <= input.startsAt) throw new DomainError("Bitiş tarihi başlangıçtan sonra olmalı.");
   if (input.usageLimit != null && input.usageLimit < 1) throw new DomainError("Kullanım limiti en az 1 olmalı.");
   return code;
@@ -167,6 +175,7 @@ export async function createReferralCode(actor: Pick<SessionUser, "id" | "role">
         active: input.active,
         createdById: actor.id,
         packages: { connect: input.packageIds.map((id) => ({ id })) },
+        packageRates: { create: (input.packageRates ?? []).map((r) => ({ packageId: r.packageId, commissionRateBps: r.commissionRateBps })) },
       },
     });
     await audit({ actorId: actor.id, action: "referral_code.create", entityType: "ReferralCode", entityId: created.id, summary: code, data: { ...input, code } });
@@ -181,7 +190,10 @@ export async function createReferralCode(actor: Pick<SessionUser, "id" | "role">
 export async function updateReferralCode(actor: Pick<SessionUser, "id" | "role">, codeId: string, input: ReferralCodeInput) {
   assertAdmin(actor);
   const code = validateCodeInput(input);
-  const before = await db.referralCode.findUnique({ where: { id: codeId }, include: { packages: { select: { id: true } } } });
+  const before = await db.referralCode.findUnique({
+    where: { id: codeId },
+    include: { packages: { select: { id: true } }, packageRates: { select: { packageId: true, commissionRateBps: true } } },
+  });
   if (!before) throw new DomainError("Kod bulunamadı.", "NOT_FOUND");
   if (before.code !== code && before.usageCount > 0) throw new DomainError("Kullanılmış bir kodun metni değiştirilemez; yeni kod oluşturun.");
   try {
@@ -199,6 +211,11 @@ export async function updateReferralCode(actor: Pick<SessionUser, "id" | "role">
         usageLimit: input.usageLimit,
         active: input.active,
         packages: { set: input.packageIds.map((id) => ({ id })) },
+        // Pakete özel oranlar formdakiyle değiştirilir; geçmiş komisyonlar kendi kaydındaki oranla kalır
+        packageRates: {
+          deleteMany: {},
+          create: (input.packageRates ?? []).map((r) => ({ packageId: r.packageId, commissionRateBps: r.commissionRateBps })),
+        },
       },
     });
     await audit({
@@ -208,7 +225,7 @@ export async function updateReferralCode(actor: Pick<SessionUser, "id" | "role">
       entityId: codeId,
       summary: code,
       data: {
-        before: { ...before, packages: before.packages.map((p) => p.id) },
+        before: { ...before, packages: before.packages.map((p) => p.id), packageRates: before.packageRates },
         after: { ...input, code },
       } as unknown as Record<string, unknown>,
     });
@@ -304,13 +321,18 @@ export async function recordCommissionForPayment(
 ) {
   const order = await tx.order.findUniqueOrThrow({
     where: { id: input.orderId },
-    select: { referralCodeId: true, partnerId: true, listPriceKurus: true, priceKurus: true, discountKurus: true },
+    select: { referralCodeId: true, partnerId: true, packageId: true, listPriceKurus: true, priceKurus: true, discountKurus: true },
   });
   if (!order.referralCodeId || !order.partnerId) return null;
-  const code = await tx.referralCode.findUniqueOrThrow({ where: { id: order.referralCodeId } });
+  const code = await tx.referralCode.findUniqueOrThrow({
+    where: { id: order.referralCodeId },
+    include: { packageRates: { select: { packageId: true, commissionRateBps: true } } },
+  });
+  // Paket bazında oran tanımlıysa o kullanılır; kullanılan oran ve kaynağı komisyon kaydında saklanır
+  const rate = commissionRateForPackage(code, order.packageId);
   const calc = computeCommission({
     baseType: code.commissionBase,
-    rateBps: code.commissionRateBps,
+    rateBps: rate.rateBps,
     listPriceKurus: order.listPriceKurus ?? order.priceKurus + order.discountKurus,
     discountKurus: order.discountKurus,
     paidKurus: input.paidKurus,
@@ -327,7 +349,7 @@ export async function recordCommissionForPayment(
       baseAmountKurus: calc.baseAmountKurus,
       rateBps: calc.rateBps,
       amountKurus: calc.amountKurus,
-      calculation: { ...calc, code: code.code } as unknown as Prisma.InputJsonValue,
+      calculation: { ...calc, code: code.code, rateSource: rate.source, packageId: order.packageId } as unknown as Prisma.InputJsonValue,
       eligibleAt: new Date(input.paidAt.getTime() + settings.commissionHoldDays * 24 * 60 * 60 * 1000),
     },
   });
@@ -431,4 +453,33 @@ export async function recordCommissionPayout(
     );
     return payout;
   });
+}
+
+/**
+ * Panel hesabı olan iş ortağına yeni şifre belirleme bağlantısı gönderir (72 saat geçerli).
+ * Önceki bağlantılar süreleri dolana kadar geçerli kalır; kapalı hesaplara bağlantı gönderilmez.
+ */
+export async function resendPartnerLogin(actor: Pick<SessionUser, "id" | "role">, partnerId: string) {
+  assertAdmin(actor);
+  const partner = await db.partner.findUnique({ where: { id: partnerId }, include: { user: { select: { id: true, email: true, disabledAt: true } } } });
+  if (!partner) throw new DomainError("İş ortağı bulunamadı.", "NOT_FOUND");
+  if (!partner.user) throw new DomainError("Bu iş ortağının henüz panel hesabı yok. Önce panel hesabı oluşturun.");
+  if (partner.user.disabledAt) throw new DomainError("Panel hesabı kapalı. Bağlantı göndermeden önce iş ortağını aktif yapın.");
+  const token = randomToken(32);
+  await db.passwordResetToken.create({
+    data: { userId: partner.user.id, tokenHash: sha256Hex(token), expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) },
+  });
+  const sent = await sendEmail(
+    renderEmail(partner.user.email, "AddLyrics iş ortaklığı paneli", {
+      heading: "İş ortaklığı panelin hazır",
+      paragraphs: [
+        `Merhaba ${partner.name},`,
+        "AddLyrics iş ortaklığı panelinde referans kodunu, atfedilen satışları ve komisyon durumunu görebilirsin.",
+        "Aşağıdaki bağlantıyla şifreni belirle. Bağlantı 72 saat geçerlidir.",
+      ],
+      cta: { label: "Şifremi belirle", href: appUrl(`/sifre-sifirla?token=${encodeURIComponent(token)}`) },
+    }),
+  );
+  await audit({ actorId: actor.id, action: "partner.resend_login", entityType: "Partner", entityId: partnerId, summary: partner.user.email, data: { emailSent: sent } });
+  return { email: partner.user.email, emailSent: sent };
 }

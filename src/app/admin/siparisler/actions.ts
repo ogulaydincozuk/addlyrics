@@ -7,7 +7,7 @@ import { parseDateInput } from "@/lib/dates";
 import { ORDER_STATUSES, VIDEO_FORMATS } from "@/lib/enums";
 import { requireAdmin } from "@/server/auth/guards";
 import { addDeliverable, releaseDeliverable, updateProjectPlan } from "@/server/domain/deliveries";
-import { isDomainError } from "@/server/domain/errors";
+import { DomainError, isDomainError } from "@/server/domain/errors";
 import { addInternalNote, assignEditor, changeOrderStatus, markMessagesHandled, sendCustomerNote, setDueDate, unassignEditor } from "@/server/domain/orders";
 import { markPaymentRefunded } from "@/server/payments/service";
 
@@ -118,8 +118,8 @@ export async function refundPaymentAction(paymentId: string, _prev: ActionState,
   if (reason.length < 3) return { ok: false, message: "İade nedenini yaz." };
   return run(async (adminId) => {
     const changed = await markPaymentRefunded(paymentId, adminId, reason);
-    return changed
-      ? "Ödeme iade edildi olarak işaretlendi ve paket hakkı kapatıldı. (Para iadesini ödeme sağlayıcısının panelinden yapmayı unutma.)"
-      : "Bu ödeme iade edilebilir durumda değil.";
+    // Hiçbir kayıt değişmediyse kullanıcı başarı mesajı görmemeli
+    if (!changed) throw new DomainError("Bu ödeme iade edilebilir durumda değil (yalnızca başarılı ödemeler iade edildi olarak işaretlenebilir).");
+    return "Ödeme iade edildi olarak işaretlendi ve paket hakkı kapatıldı. (Para iadesini ödeme sağlayıcısının panelinden yapmayı unutma.)";
   });
 }

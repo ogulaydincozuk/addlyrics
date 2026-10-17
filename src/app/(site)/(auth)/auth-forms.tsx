@@ -68,6 +68,7 @@ export function RegisterForm({ next }: { next: string }) {
         <Checkbox
           name="kvkk"
           required
+          defaultChecked={v.kvkk === "on"}
           label={
             <>
               <Link href="/kvkk-aydinlatma-metni" target="_blank" className="font-semibold text-brand hover:underline">
@@ -93,7 +94,7 @@ export function ForgotPasswordForm() {
     <form action={action} className="space-y-5" noValidate>
       {state.message && <Alert tone="danger">{state.message}</Alert>}
       <Field label={t.email} htmlFor="email" error={state.errors?.email}>
-        <Input id="email" name="email" type="email" autoComplete="email" required />
+        <Input id="email" name="email" type="email" autoComplete="email" defaultValue={state.values?.email} required aria-invalid={!!state.errors?.email} />
       </Field>
       <Button type="submit" block size="lg" disabled={pending}>
         {pending ? "Gönderiliyor…" : t.resetSubmit}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, MessageSquare } from "lucide-react";
 import { OrderStatusBadge } from "@/components/order/status-badge";
@@ -10,9 +11,18 @@ import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
 import { countAwaitingMessages } from "@/server/queries/messages";
 import { getReadiness } from "@/server/readiness";
-import { AdminPage, Section, Table, Td, Th } from "./_ui";
+import { AdminPage, customerHref, Section, Table, Td, Th } from "./_ui";
 
 export const metadata: Metadata = { title: "Gösterge Paneli" };
+
+/** Tıklanabilir özet kartı (ilgili listeye gider). */
+function StatCard({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="block rounded-2xl">
+      <Card className="h-full p-4 transition-colors hover:border-brand">{children}</Card>
+    </Link>
+  );
+}
 
 export default function AdminDashboardPage() {
   return (
@@ -26,12 +36,16 @@ async function Dashboard() {
   const admin = await requireAdmin();
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [trialChecks, trialLate, trialReady, trialConverted, commissionPending, awaitingMessages] = await Promise.all([
+  const [trialChecks, trialLate, trialReady, trialConverted, trialQc, commissionPending, commissionApprovable, commissionApproved, awaitingMessages] = await Promise.all([
     db.trialApplication.count({ where: { status: { in: ["RECEIVED", "FILES_CHECK"] } } }),
     db.trialApplication.count({ where: { previewDueAt: { lt: now }, status: { in: ["QUEUED", "IN_PRODUCTION", "FAILED"] } } }),
     db.trialApplication.count({ where: { previewsReadyAt: { not: null } } }),
     db.trialApplication.count({ where: { convertedOrderId: { not: null } } }),
+    db.trialVideo.count({ where: { status: "EDITOR_REVIEW", trial: { status: { not: "CANCELLED" } } } }),
     db.commission.aggregate({ where: { status: { in: ["PENDING", "APPROVED"] } }, _sum: { amountKurus: true } }),
+    // Onay kuralı approveCommission ile aynı: bekleyen, süresi dolmuş, ödemesi geçerli
+    db.commission.count({ where: { status: "PENDING", eligibleAt: { lte: now }, payment: { status: "SUCCEEDED" } } }),
+    db.commission.count({ where: { status: "APPROVED" } }),
     countAwaitingMessages(),
   ]);
   const [byStatus, overdue, revenue, activeEntitlements, customers, recent, alerts, readiness, workload] = await Promise.all([
@@ -44,9 +58,14 @@ async function Dashboard() {
       where: { status: { not: "PAYMENT_PENDING" } },
       orderBy: { updatedAt: "desc" },
       take: 8,
-      include: { song: { select: { artistName: true, title: true } }, user: { select: { name: true } } },
+      include: { song: { select: { artistName: true, title: true } }, user: { select: { name: true, email: true } } },
     }),
-    db.notification.findMany({ where: { userId: admin.id, type: "ADMIN_ALERT" }, orderBy: { createdAt: "desc" }, take: 6 }),
+    db.notification.findMany({
+      where: { userId: admin.id, type: "ADMIN_ALERT" },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: { order: { select: { number: true } } },
+    }),
     getReadiness(),
     db.editor.findMany({
       where: { active: true },
@@ -62,8 +81,14 @@ async function Dashboard() {
     { label: "Teslim tarihi geçmiş", value: overdue, href: "/admin/siparisler?gecikmis=1" },
     { label: "Deneme: dosya kontrolü", value: trialChecks, href: "/admin/denemeler?durum=FILES_CHECK" },
     { label: "Deneme: hedefi geçen", value: trialLate, href: "/admin/denemeler?gecikmis=1" },
-    { label: "Deneme → satın alma", value: trialConverted, href: "/admin/denemeler?durum=COMPLETED", note: trialReady ? `Ön izlemesi hazırlanan ${trialReady} denemeden` : undefined },
-    { label: "Ödenmemiş komisyon (TL)", value: Math.round((commissionPending._sum.amountKurus ?? 0) / 100), href: "/admin/komisyonlar" },
+    { label: "Deneme: kalite kontrol bekleyen video", value: trialQc, href: "/admin/uretim?kk=1" },
+    { label: "Deneme → satın alma", value: trialConverted, href: "/admin/denemeler?donusen=1", note: trialReady ? `Ön izlemesi hazırlanan ${trialReady} denemeden` : undefined },
+    {
+      label: "Ödenmemiş komisyon (TL)",
+      value: Math.round((commissionPending._sum.amountKurus ?? 0) / 100),
+      href: "/admin/komisyonlar?onaylanabilir=1",
+      note: commissionApprovable || commissionApproved ? `${commissionApprovable} onaylanabilir · ${commissionApproved} ödeme bekliyor` : undefined,
+    },
   ];
   const readyCount = readiness.filter((r) => r.ok).length;
 
@@ -93,23 +118,23 @@ async function Dashboard() {
         ))}
       </div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Card className="p-4">
+        <StatCard href="/admin/odemeler?durum=SUCCEEDED">
           <p className="text-sm text-muted">Bu ay tahsilat</p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">{formatMoney(revenue._sum.amountKurus ?? 0)}</p>
           <p className="text-xs text-muted">Test ödemeleri hariç</p>
-        </Card>
-        <Card className="p-4">
+        </StatCard>
+        <StatCard href="/admin/abonelikler">
           <p className="text-sm text-muted">Aktif paket</p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">{activeEntitlements}</p>
-        </Card>
-        <Card className="p-4">
+        </StatCard>
+        <StatCard href="/admin/siparisler?aktif=1">
           <p className="text-sm text-muted">Üretimdeki sipariş</p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">{ACTIVE_STATUSES.reduce((n, s) => n + count(s), 0)}</p>
-        </Card>
-        <Card className="p-4">
+        </StatCard>
+        <StatCard href="/admin/musteriler">
           <p className="text-sm text-muted">Müşteri</p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">{customers}</p>
-        </Card>
+        </StatCard>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -142,7 +167,9 @@ async function Dashboard() {
                     <p className="font-medium text-ink">
                       {o.song.artistName} – {o.song.title}
                     </p>
-                    <p className="text-xs text-muted">{o.user.name}</p>
+                    <Link href={customerHref(o.user.email)} className="text-xs text-muted hover:text-brand hover:underline">
+                      {o.user.name}
+                    </Link>
                   </Td>
                   <Td>
                     <OrderStatusBadge status={o.status} />
@@ -209,7 +236,13 @@ async function Dashboard() {
             <ul className="space-y-3">
               {alerts.map((n) => (
                 <li key={n.id} className="text-sm">
-                  <p className="font-semibold text-ink">{n.title}</p>
+                  {n.order ? (
+                    <Link href={`/admin/siparisler/${n.order.number}`} className="font-semibold text-ink hover:text-brand hover:underline">
+                      {n.title}
+                    </Link>
+                  ) : (
+                    <p className="font-semibold text-ink">{n.title}</p>
+                  )}
                   <p className="text-muted">{n.body}</p>
                   <p className="text-xs text-muted">{formatDateTime(n.createdAt)}</p>
                 </li>

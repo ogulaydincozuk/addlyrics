@@ -42,7 +42,8 @@ export async function login(_prev: ActionState, formData: FormData): Promise<Act
 }
 
 export async function register(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const values = formValues(formData, ["name", "artistName", "email", "phone"]);
+  // kvkk: işaretliyse "on" — hata sonrası onay kutusu da korunur
+  const values = formValues(formData, ["name", "artistName", "email", "phone", "kvkk"]);
   const parsed = registerSchema.safeParse({
     name: formData.get("name"),
     artistName: formData.get("artistName"),
@@ -93,11 +94,12 @@ export async function logout() {
 }
 
 export async function requestPasswordReset(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const values = formValues(formData, ["email"]);
   const parsed = emailSchema.safeParse(formData.get("email"));
-  if (!parsed.success) return { ok: false, errors: { email: parsed.error.issues[0]!.message } };
+  if (!parsed.success) return { ok: false, errors: { email: parsed.error.issues[0]!.message }, values };
 
   const limit = await rateLimitByIp("passwordReset");
-  if (!limit.ok) return { ok: false, message: t.tooMany };
+  if (!limit.ok) return { ok: false, message: t.tooMany, values };
 
   const user = await db.user.findUnique({ where: { email: parsed.data } });
   if (user && !user.disabledAt) {

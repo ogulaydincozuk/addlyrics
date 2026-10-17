@@ -11,10 +11,16 @@ export default function NotFound() {
       <p className="mt-10 font-display text-6xl font-extrabold text-ink">404</p>
       <h1 className="mt-3 text-xl font-bold text-ink">Aradığın sayfa bulunamadı</h1>
       <p className="mt-2 max-w-md text-muted">Bağlantı değişmiş veya sayfa kaldırılmış olabilir.</p>
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
         <LinkButton href="/">Ana Sayfa</LinkButton>
         <LinkButton href="/paketler" variant="secondary">
           Paketleri İncele
+        </LinkButton>
+        <LinkButton href="/panel" variant="secondary">
+          Panelim
+        </LinkButton>
+        <LinkButton href="/iletisim" variant="ghost">
+          İletişim
         </LinkButton>
       </div>
     </div>

@@ -104,7 +104,10 @@ async function ResultContent({ params }: Pick<PageProps<"/siparis/[numara]/sonuc
         {payment?.failureReason && <p className="mx-auto mt-3 max-w-md rounded-xl bg-canvas p-3 text-sm text-ink-soft ring-1 ring-line">{payment.failureReason}</p>}
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
           <LinkButton href={`/siparis/${order.number}/odeme`}>Tekrar Dene</LinkButton>
-          <LinkButton href="/iletisim" variant="secondary">
+          <LinkButton href={`/panel/siparislerim/${order.number}`} variant="secondary">
+            Sipariş Detayı
+          </LinkButton>
+          <LinkButton href="/iletisim" variant="ghost">
             Yardım Al
           </LinkButton>
         </div>
@@ -120,8 +123,11 @@ async function ResultContent({ params }: Pick<PageProps<"/siparis/[numara]/sonuc
         Ödeme sağlayıcısından onay bekleniyor. Bu genellikle birkaç saniye sürer; sayfa kendiliğinden yenilenecek.
       </p>
       <AutoRefresh />
-      <div className="mt-8">
-        <LinkButton href="/panel/siparislerim" variant="secondary">
+      <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+        <LinkButton href={`/panel/siparislerim/${order.number}`} variant="secondary">
+          Sipariş Detayı
+        </LinkButton>
+        <LinkButton href="/panel/siparislerim" variant="ghost">
           Siparişlerime Git
         </LinkButton>
       </div>

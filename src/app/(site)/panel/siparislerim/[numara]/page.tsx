@@ -47,6 +47,9 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
   const MESSAGE_TYPES = ["NOTE", "CUSTOMER_MESSAGE"];
   const orderMessages = order.events.filter((e) => MESSAGE_TYPES.includes(e.type)).reverse();
   const history = order.events.filter((e) => !MESSAGE_TYPES.includes(e.type));
+  // Son mesaj ekipten geldiyse müşterinin yanıtı bekleniyor
+  const lastMessage = orderMessages.at(-1);
+  const awaitingReply = lastMessage?.type === "NOTE" && order.status !== "CANCELLED";
   const editable = CUSTOMER_EDITABLE_STATUSES.includes(order.status);
   const fileKinds = order.files.map((f) => f.kind);
   const missing = missingRequiredItems({ style: order.style, footageSource: order.footageSource, lyricsText: order.song.lyrics, fileKinds });
@@ -70,6 +73,15 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
         </Alert>
       )}
 
+      {awaitingReply && lastMessage && (
+        <Alert tone="warning" title="Ekibimiz sana bir soru sordu">
+          <span className="line-clamp-2">“{lastMessage.message}”</span>{" "}
+          <a href="#mesajlar" className="font-semibold underline">
+            Yanıtla
+          </a>
+        </Alert>
+      )}
+
       <Card className="p-5 sm:p-7">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -87,6 +99,20 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
         <div className="mt-5">
           <OrderProgress status={order.status} />
         </div>
+        <nav aria-label="Sayfa bölümleri" className="mt-5 flex flex-wrap gap-2 text-sm">
+          {order.projects.length > 0 && (
+            <a href="#videolar" className="rounded-full bg-canvas px-3 py-1.5 font-semibold text-ink-soft ring-1 ring-line hover:text-brand">
+              Videolar
+            </a>
+          )}
+          <a href="#dosyalar" className="rounded-full bg-canvas px-3 py-1.5 font-semibold text-ink-soft ring-1 ring-line hover:text-brand">
+            Dosyalar{missing.length > 0 && order.status !== "CANCELLED" ? ` (${missing.length} eksik)` : ""}
+          </a>
+          <a href="#mesajlar" className="rounded-full bg-canvas px-3 py-1.5 font-semibold text-ink-soft ring-1 ring-line hover:text-brand">
+            Mesajlar{orderMessages.length ? ` (${orderMessages.length})` : ""}
+            {awaitingReply && <span className="ml-1.5 inline-block size-2 rounded-full bg-warning align-middle" aria-label="Yanıtın bekleniyor" />}
+          </a>
+        </nav>
         {order.dueDate && (
           <p className="mt-5 flex items-center gap-2 rounded-xl bg-brand-tint px-4 py-3 text-sm text-brand-ink">
             <CalendarClock className="size-4" aria-hidden /> Planlanan teslim tarihi: <strong>{formatDate(order.dueDate)}</strong>
@@ -155,7 +181,7 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
       )}
 
       {/* Dosyalar */}
-      <Card className="p-5 sm:p-7">
+      <Card id="dosyalar" className="scroll-mt-24 p-5 sm:p-7">
         <h2 className="text-lg font-bold text-ink">Dosyalar</h2>
         {missing.length > 0 && order.status !== "CANCELLED" && (
           <Alert tone="warning" title="Üretim için eksik olanlar" className="mt-4">
@@ -186,7 +212,13 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
             <p className="text-sm text-muted">Bu siparişe dosya eklenmemiş.</p>
           )}
           {!editable && order.status !== "CANCELLED" && (
-            <p className="mt-3 text-xs text-muted">Sipariş üretim aşamasında olduğu için dosya ekleme kapalı. Ek dosya için ekibimizle iletişime geç.</p>
+            <p className="mt-3 text-xs text-muted">
+              Sipariş üretim aşamasında olduğu için dosya ekleme kapalı. Ek dosya için{" "}
+              <a href="#mesajlar" className="font-semibold text-brand hover:underline">
+                Mesajlar bölümünden ekibimize yaz
+              </a>
+              .
+            </p>
           )}
         </div>
       </Card>
@@ -202,7 +234,7 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
           ) : order.song.lyrics ? (
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl bg-canvas p-4 font-sans text-sm text-ink-soft ring-1 ring-line">{order.song.lyrics}</pre>
           ) : (
-            <p className="text-sm text-muted">Sözler dosya olarak gönderildi.</p>
+            <p className="text-sm text-muted">{fileKinds.includes("LYRICS") ? "Sözler dosya olarak gönderildi." : "Sözler eklenmedi."}</p>
           )}
         </div>
       </Card>
@@ -241,7 +273,7 @@ async function OrderDetail({ params, searchParams }: PageProps<"/panel/siparisle
       </Card>
 
       {/* Ekiple mesajlaşma: üretim öncesi sorular ve yanıtlar */}
-      <Card className="p-5 sm:p-7">
+      <Card id="mesajlar" className="scroll-mt-24 p-5 sm:p-7">
         <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
           <MessagesSquare className="size-5 text-brand" aria-hidden /> Mesajlar
         </h2>

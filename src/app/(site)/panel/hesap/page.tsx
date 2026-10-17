@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/primitives";
@@ -48,7 +49,11 @@ async function Account() {
         </form>
       </Card>
       <p className="text-sm text-muted">
-        Hesabını silmek veya kişisel verilerinle ilgili bir talepte bulunmak için iletişim sayfasından bize yazabilirsin (KVKK m.11).
+        Hesabını silmek veya kişisel verilerinle ilgili bir talepte bulunmak için{" "}
+        <Link href="/iletisim" className="font-semibold text-brand hover:underline">
+          iletişim sayfasından
+        </Link>{" "}
+        bize yazabilirsin (KVKK m.11).
       </p>
     </div>
   );

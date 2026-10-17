@@ -15,11 +15,12 @@ import { cn } from "@/lib/cn";
 import { missingRequiredItems, REQUIRED_ITEM_LABELS } from "@/lib/order-requirements";
 import { allowedTransitions } from "@/lib/order-status";
 import { snapshotTotalVideos, type PackageSnapshot } from "@/lib/packages";
+import { COMMISSION_STATUS_LABEL } from "@/lib/referral";
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
 import { publicFileRules } from "@/server/storage/file-rules";
 import { ActionForm } from "../../_forms";
-import { AdminPage, Section } from "../../_ui";
+import { AdminPage, customerHref, customerOrdersHref, Section } from "../../_ui";
 import {
   assignEditorAction,
   changeStatusAction,
@@ -68,6 +69,12 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
       assignments: { orderBy: { assignedAt: "desc" }, include: { editor: true, assignedBy: { select: { name: true } } } },
       events: { orderBy: { createdAt: "desc" }, take: 100, include: { actor: { select: { name: true } } } },
       payments: { orderBy: { createdAt: "desc" } },
+      referralCode: { select: { id: true, code: true } },
+      partner: { select: { id: true, name: true } },
+      commission: { select: { id: true, status: true, amountKurus: true, partnerId: true } },
+      // Denemeden satın alma: ödeme bekleyen sipariş trialApplication, tamamlanan dönüşüm convertedTrial üzerinden bağlıdır
+      trialApplication: { select: { number: true } },
+      convertedTrial: { select: { number: true } },
     },
   });
   if (!order) notFound();
@@ -89,6 +96,7 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
   const threadState = messageThreadState(order.events.find((e) => (MESSAGE_EVENT_TYPES as readonly string[]).includes(e.type))?.type);
   const thread = order.events.filter((e) => e.type === "CUSTOMER_MESSAGE" || e.type === "NOTE").reverse();
   const lastCustomerMessage = order.events.find((e) => e.type === "CUSTOMER_MESSAGE");
+  const trialNumber = order.trialApplication?.number ?? order.convertedTrial?.number ?? null;
 
   return (
     <div className="space-y-6">
@@ -103,8 +111,14 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
               {order.song.artistName} – {order.song.title}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              {order.user.name} · <a href={`mailto:${order.user.email}`} className="text-brand hover:underline">{order.user.email}</a>
-              {order.user.phone ? ` · ${order.user.phone}` : ""}
+              <Link href={customerHref(order.user.email)} className="font-semibold text-ink hover:text-brand hover:underline">
+                {order.user.name}
+              </Link>{" "}
+              · <a href={`mailto:${order.user.email}`} className="text-brand hover:underline">{order.user.email}</a>
+              {order.user.phone ? ` · ${order.user.phone}` : ""} ·{" "}
+              <Link href={customerOrdersHref(order.user.email)} className="text-brand hover:underline">
+                Diğer siparişleri
+              </Link>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -119,6 +133,44 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
             {order.entitlement ? `${order.entitlement.usedVideos}/${order.entitlement.totalVideos} kullanıldı · ${formatDate(order.entitlement.endsAt)}` : `Henüz tanımlanmadı (toplam ${snapshotTotalVideos(snapshot)})`}
           </KeyValue>
           <KeyValue label="Editör">{activeAssignment ? activeAssignment.editor.name : "Atanmadı"}</KeyValue>
+          {order.kind === "PURCHASE" && (
+            <KeyValue label="Tutar">
+              {formatMoney(order.priceKurus, order.currency)}
+              {order.discountKurus > 0 && (
+                <span className="block text-xs text-muted">
+                  Liste {formatMoney(order.listPriceKurus ?? order.priceKurus + order.discountKurus, order.currency)} · indirim −{formatMoney(order.discountKurus, order.currency)}
+                </span>
+              )}
+            </KeyValue>
+          )}
+          {order.referralCode && (
+            <KeyValue label="Referans kodu">
+              <Link href={`/admin/referans-kodlari/${order.referralCode.id}`} className="font-semibold text-brand hover:underline">
+                {order.referralCode.code}
+              </Link>
+            </KeyValue>
+          )}
+          {order.partner && (
+            <KeyValue label="İş ortağı">
+              <Link href={`/admin/is-ortaklari/${order.partner.id}`} className="text-brand hover:underline">
+                {order.partner.name}
+              </Link>
+            </KeyValue>
+          )}
+          {order.commission && (
+            <KeyValue label="Komisyon">
+              <Link href={`/admin/komisyonlar?ortak=${order.commission.partnerId}`} className="text-brand hover:underline">
+                {COMMISSION_STATUS_LABEL[order.commission.status]} · {formatMoney(order.commission.amountKurus)}
+              </Link>
+            </KeyValue>
+          )}
+          {trialNumber && (
+            <KeyValue label="Deneme">
+              <Link href={`/admin/denemeler/${trialNumber}`} className="text-brand hover:underline">
+                {trialNumber}
+              </Link>
+            </KeyValue>
+          )}
         </dl>
         {threadState === "AWAITING_REPLY" && lastCustomerMessage && (
           <Alert tone="warning" title="Müşteri yanıt bekliyor" className="mt-4">

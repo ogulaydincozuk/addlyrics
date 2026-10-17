@@ -30,10 +30,17 @@ export function EmailResend({ next }: { next: string }) {
 }
 
 export function PhoneVerification({ defaultPhone, smsAvailable }: { defaultPhone: string; smsAvailable: boolean }) {
-  const [sendState, sendAction, sending] = useActionState(sendPhoneCode, initialActionState);
+  // Kod bir kez gönderildiyse, "yeni kod" isteği (ör. bekleme süresi) başarısız olsa da kod alanı açık kalır
+  const [sendState, sendAction, sending] = useActionState(
+    async (prev: ActionState & { sent?: boolean }, formData: FormData) => {
+      const result = await sendPhoneCode(prev, formData);
+      return { ...result, sent: Boolean(prev.sent || result.ok) };
+    },
+    initialActionState as ActionState & { sent?: boolean },
+  );
   const [confirmState, confirmAction, confirming] = useActionState(confirmPhoneCode, initialActionState);
   const [phone, setPhone] = useState(defaultPhone);
-  const codeSent = sendState.ok;
+  const codeSent = Boolean(sendState.sent);
 
   return (
     <div className="space-y-5">

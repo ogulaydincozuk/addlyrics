@@ -45,6 +45,14 @@ async function TrialPanel({ searchParams }: Pick<PageProps<"/panel/deneme">, "se
             <LinkButton href={eligibility.ok ? "/ucretsiz-deneme" : "/panel/dogrulama?next=/ucretsiz-deneme"} icon={null}>
               {eligibility.ok ? "Ücretsiz Denemeyi Başlat" : "Hesabını doğrula"} <ArrowRight className="size-4" aria-hidden />
             </LinkButton>
+          ) : eligibility.reason === "CUSTOMER" ? (
+            <LinkButton href="/panel/yeni-siparis" icon={null}>
+              Yeni Şarkı Gönder <ArrowRight className="size-4" aria-hidden />
+            </LinkButton>
+          ) : eligibility.reason === "DISABLED" || eligibility.reason === "CAPACITY" ? (
+            <LinkButton href="/paketler" icon={null}>
+              Paketleri İncele <ArrowRight className="size-4" aria-hidden />
+            </LinkButton>
           ) : undefined
         }
       />
@@ -104,9 +112,23 @@ async function TrialPanel({ searchParams }: Pick<PageProps<"/panel/deneme">, "se
             </Alert>
           )}
           {trial.purgedAt && (
-            <Alert tone="info">Saklama süresi dolduğu için bu denemenin dosyaları silindi. Yeni videolar için paketleri inceleyebilirsin.</Alert>
+            <Alert tone="info">
+              Saklama süresi dolduğu için bu denemenin dosyaları silindi. Yeni videolar için{" "}
+              <Link href="/paketler" className="font-semibold underline">
+                paketleri inceleyebilirsin
+              </Link>
+              .
+            </Alert>
           )}
-          {trial.status === "CANCELLED" && <Alert tone="info">Bu deneme kapatıldı. {trial.cancelReason}</Alert>}
+          {trial.status === "CANCELLED" && (
+            <Alert tone="info">
+              Bu deneme kapatıldı. {trial.cancelReason}{" "}
+              <Link href="/iletisim" className="font-semibold underline">
+                Sorun olduğunu düşünüyorsan bize yaz
+              </Link>
+              .
+            </Alert>
+          )}
         </div>
       </Card>
 

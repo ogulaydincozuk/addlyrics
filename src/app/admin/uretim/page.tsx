@@ -12,16 +12,19 @@ import { retryVideoAction } from "../denemeler/actions";
 
 export const metadata: Metadata = { title: "Üretim Kuyruğu" };
 
-export default function ProductionQueuePage() {
+export default function ProductionQueuePage({ searchParams }: PageProps<"/admin/uretim">) {
   return (
     <AdminPage title="Üretim Kuyruğu" description="Deneme videoları ve ücretli siparişlerin teslim tarihleri, gecikmeler ve hatalar.">
-      <Queue />
+      <Queue searchParams={searchParams} />
     </AdminPage>
   );
 }
 
-async function Queue() {
+async function Queue({ searchParams }: Pick<PageProps<"/admin/uretim">, "searchParams">) {
   await requireAdmin();
+  const sp = await searchParams;
+  // ?kk=1: yalnızca kalite kontrol (editör incelemesi) bekleyen deneme videoları
+  const qcOnly = sp.kk === "1";
   const now = new Date();
   const [trialVideos, projects, caps] = await Promise.all([
     db.trialVideo.findMany({
@@ -37,6 +40,7 @@ async function Queue() {
           select: { number: true, status: true, song: { select: { artistName: true, title: true } }, assignments: { where: { active: true }, select: { editor: { select: { name: true } } } } },
         },
         deliverables: { select: { id: true, releasedAt: true } },
+        trialVideo: { select: { trial: { select: { number: true } } } },
       },
       orderBy: [{ dueDate: "asc" }, { sequence: "asc" }],
       take: 300,
@@ -46,6 +50,8 @@ async function Queue() {
   const failed = trialVideos.filter((v) => v.status === "FAILED");
   const lateTrials = trialVideos.filter((v) => v.trial.previewDueAt && v.trial.previewDueAt < now);
   const lateProjects = projects.filter((p) => p.dueDate && p.dueDate < now);
+  // Özet kartları tüm kuyruğu sayar; filtre yalnızca tabloya uygulanır
+  const shownTrialVideos = qcOnly ? trialVideos.filter((v) => v.status === "EDITOR_REVIEW") : trialVideos;
 
   return (
     <div className="space-y-6">
@@ -66,7 +72,15 @@ async function Queue() {
         <p className="text-sm text-muted">Sunucuda ffmpeg yok ({caps.error}); deneme ön izlemeleri editör tarafından ayrı dışa aktarılıp yüklenmeli.</p>
       )}
 
-      <Section title="Deneme videoları" description="Ön izleme hedefine göre sıralı. Hedef, dosya kontrolü onaylandığında başlar.">
+      <Section
+        title={qcOnly ? "Kalite kontrol bekleyen deneme videoları" : "Deneme videoları"}
+        description="Ön izleme hedefine göre sıralı. Hedef, dosya kontrolü onaylandığında başlar."
+        actions={
+          <Link href={qcOnly ? "/admin/uretim" : "/admin/uretim?kk=1"} className="text-sm font-semibold text-brand hover:underline">
+            {qcOnly ? "Tüm deneme videoları" : "Yalnızca kalite kontrol bekleyenler"}
+          </Link>
+        }
+      >
         <Table minWidth={860}>
           <thead>
             <tr>
@@ -79,7 +93,7 @@ async function Queue() {
             </tr>
           </thead>
           <tbody>
-            {trialVideos.map((v) => {
+            {shownTrialVideos.map((v) => {
               const late = v.trial.previewDueAt && v.trial.previewDueAt < now;
               return (
                 <tr key={v.id}>
@@ -108,9 +122,9 @@ async function Queue() {
                 </tr>
               );
             })}
-            {trialVideos.length === 0 && (
+            {shownTrialVideos.length === 0 && (
               <tr>
-                <Td className="py-8 text-muted">Kuyrukta deneme videosu yok.</Td>
+                <Td className="py-8 text-muted">{qcOnly ? "Kalite kontrol bekleyen deneme videosu yok." : "Kuyrukta deneme videosu yok."}</Td>
               </tr>
             )}
           </tbody>
@@ -141,7 +155,11 @@ async function Queue() {
                   </Td>
                   <Td>
                     {p.title}
-                    {p.trialVideoId && <Badge className="ml-1">deneme</Badge>}
+                    {p.trialVideo && (
+                      <Link href={`/admin/denemeler/${p.trialVideo.trial.number}`} className="ml-1" title={`Deneme ${p.trialVideo.trial.number}`}>
+                        <Badge>deneme</Badge>
+                      </Link>
+                    )}
                   </Td>
                   <Td>
                     {p.order.song.artistName} – {p.order.song.title}

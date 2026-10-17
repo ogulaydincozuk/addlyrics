@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import {
   BadgeCheck,
   CreditCard,
@@ -31,26 +32,48 @@ export const PANEL_LINKS = [
   { href: "/panel/hesap", label: "Hesap Ayarları", icon: Settings },
 ] as const;
 
+/** Menüde dikkat işaretleri: sayı (ör. yanıt bekleyen soru) veya nokta (ör. doğrulama eksik). */
+export type PanelNavMarks = Partial<Record<string, { count?: number; dot?: boolean; title?: string }>>;
+
+function Mark({ mark }: { mark?: { count?: number; dot?: boolean; title?: string } }) {
+  if (!mark) return null;
+  if (mark.count) {
+    return (
+      <span className="ml-auto min-w-5 rounded-full bg-danger px-1.5 text-center text-[11px] font-bold leading-5 text-white" title={mark.title}>
+        {mark.count}
+      </span>
+    );
+  }
+  if (mark.dot) return <span className="ml-auto size-2 shrink-0 rounded-full bg-warning" title={mark.title} aria-label={mark.title} />;
+  return null;
+}
+
 function isActive(pathname: string | null, href: string) {
   if (!pathname) return false;
   return href === "/panel" ? pathname === "/panel" : pathname.startsWith(href);
 }
 
-export function PanelNav({ withActive = true }: { withActive?: boolean }) {
+export function PanelNav({ withActive = true, marks = {} }: { withActive?: boolean; marks?: PanelNavMarks }) {
   // usePathname yalnızca Suspense içinde çağrılır (layout'ta yedek olarak aktif durumsuz sürüm gösterilir)
-  return withActive ? <ActiveNav /> : <NavList pathname={null} />;
+  return withActive ? <ActiveNav marks={marks} /> : <NavList pathname={null} marks={marks} />;
 }
 
-function ActiveNav() {
+function ActiveNav({ marks }: { marks: PanelNavMarks }) {
   const pathname = usePathname();
-  return <NavList pathname={pathname} />;
+  return <NavList pathname={pathname} marks={marks} />;
 }
 
-function NavList({ pathname }: { pathname: string | null }) {
+function NavList({ pathname, marks }: { pathname: string | null; marks: PanelNavMarks }) {
+  const mobileList = useRef<HTMLUListElement>(null);
+  // Mobilde yatay sekmelerde etkin sayfa görünür alana kaydırılır
+  useEffect(() => {
+    const active = mobileList.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [pathname]);
   return (
     <nav aria-label="Müşteri paneli">
       {/* Mobil: yatay kaydırılabilir sekmeler */}
-      <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
+      <ul ref={mobileList} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
         {PANEL_LINKS.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
           return (
@@ -65,6 +88,7 @@ function NavList({ pathname }: { pathname: string | null }) {
               >
                 <Icon className="size-4" aria-hidden />
                 {label}
+                <Mark mark={marks[href]} />
               </Link>
             </li>
           );
@@ -86,6 +110,7 @@ function NavList({ pathname }: { pathname: string | null }) {
               >
                 <Icon className="size-[18px]" aria-hidden />
                 {label}
+                <Mark mark={marks[href]} />
               </Link>
             </li>
           );

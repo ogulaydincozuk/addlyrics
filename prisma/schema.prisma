@@ -346,6 +346,7 @@ model Package {
   channelListings PackageChannelListing[]
   // Bu pakete uygulanabilen referans kodları (boş liste = tüm paketler)
   referralCodes   ReferralCode[]
+  referralRates   ReferralCodePackageRate[]
 }
 
 // Bir paketin harici satış kanalındaki (ör. Shopify) karşılığı.
@@ -939,11 +940,28 @@ model ReferralCode {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  packages    Package[]
-  orders      Order[]
-  commissions Commission[]
+  packages     Package[]
+  packageRates ReferralCodePackageRate[]
+  orders       Order[]
+  commissions  Commission[]
 
   @@index([partnerId])
+}
+
+/// Kod için pakete özel komisyon oranı. Tanımlı olmayan paketlerde kodun genel oranı (commissionRateBps) geçerlidir.
+model ReferralCodePackageRate {
+  id                String       @id @default(cuid())
+  referralCodeId    String
+  referralCode      ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  packageId         String
+  package           Package      @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  // Baz puan (750 = %7,5)
+  commissionRateBps Int
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([referralCodeId, packageId])
+  @@index([packageId])
 }
 
 // Doğrulanmış ödemeden doğan komisyon. Her sipariş için en fazla bir kayıt.

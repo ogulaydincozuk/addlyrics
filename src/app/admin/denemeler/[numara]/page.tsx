@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, Download } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download } from "lucide-react";
+import { OrderStatusBadge } from "@/components/order/status-badge";
 import { Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, KeyValue } from "@/components/ui/primitives";
 import { messages } from "@/i18n/config";
 import { formatDateTime } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
 import { TRIAL_STAGE_LABEL, TRIAL_STAGE_TONE, TRIAL_VIDEO_TRANSITIONS } from "@/lib/trial";
 import { formatPhone } from "@/lib/phone";
 import { requireAdmin } from "@/server/auth/guards";
@@ -14,7 +16,7 @@ import type { TrialCheckReport } from "@/server/domain/trials";
 import { publicFileRules } from "@/server/storage/file-rules";
 import { ffmpegCapabilities } from "@/server/video/ffmpeg";
 import { ActionForm } from "../../_forms";
-import { AdminPage, Section } from "../../_ui";
+import { AdminPage, customerHref, Section } from "../../_ui";
 import {
   approvePreviewAction,
   assignVideoEditorAction,
@@ -33,9 +35,14 @@ const t = messages();
 
 export default function AdminTrialPage({ params }: PageProps<"/admin/denemeler/[numara]">) {
   return (
-    <AdminPage title="Deneme Başvurusu">
-      <TrialDetail params={params} />
-    </AdminPage>
+    <div>
+      <Link href="/admin/denemeler" className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-brand">
+        <ArrowLeft className="size-4" aria-hidden /> Deneme başvuruları
+      </Link>
+      <AdminPage title="Deneme Başvurusu">
+        <TrialDetail params={params} />
+      </AdminPage>
+    </div>
   );
 }
 
@@ -55,9 +62,12 @@ async function TrialDetail({ params }: Pick<PageProps<"/admin/denemeler/[numara]
       events: { orderBy: { createdAt: "desc" }, take: 60, include: { actor: { select: { name: true } } } },
       convertedOrder: { select: { number: true, status: true } },
       filesVerifiedBy: { select: { name: true } },
+      // Bu denemeden başlatılan satın alma siparişleri (ödeme bekleyen / iptal edilen ödeme denemeleri dahil)
+      purchaseOrders: { orderBy: { createdAt: "desc" }, select: { id: true, number: true, status: true, createdAt: true, priceKurus: true, currency: true } },
     },
   });
   if (!trial) notFound();
+  const otherPurchaseOrders = trial.purchaseOrders.filter((o) => o.id !== trial.convertedOrderId);
   const [editors, caps] = await Promise.all([db.editor.findMany({ where: { active: true }, orderBy: { name: "asc" } }), ffmpegCapabilities()]);
   const rules = publicFileRules();
   const report = trial.checkReport as TrialCheckReport | null;
@@ -88,7 +98,11 @@ async function TrialDetail({ params }: Pick<PageProps<"/admin/denemeler/[numara]
           <Section title="Başvuru ve dosyalar">
             <div className="grid gap-4 sm:grid-cols-2">
               <KeyValue label="Müşteri">
-                {trial.contactName} · {trial.contactEmail}
+                <Link href={customerHref(trial.user.email)} className="font-semibold text-brand hover:underline">
+                  {trial.contactName}
+                </Link>{" "}
+                · {trial.contactEmail}
+                {trial.user.email.toLowerCase() !== trial.contactEmail.toLowerCase() && <span className="block text-xs text-muted">Hesap: {trial.user.email}</span>}
               </KeyValue>
               <KeyValue label="Telefon">{formatPhone(trial.contactPhone)}</KeyValue>
               <KeyValue label="Doğrulama">
@@ -273,6 +287,28 @@ async function TrialDetail({ params }: Pick<PageProps<"/admin/denemeler/[numara]
                   <Textarea name="message" rows={3} placeholder="Ör. Ses dosyası ile sözler farklı şarkıya ait görünüyor; doğru ses dosyasını yükler misin?" aria-label="Müşteriye mesaj" />
                 </ActionForm>
               </div>
+            </Section>
+          )}
+          {otherPurchaseOrders.length > 0 && (
+            <Section
+              title={trial.convertedOrderId ? "Diğer satın alma denemeleri" : "Satın alma denemeleri"}
+              description="Bu denemeden başlatılmış, satın almaya dönüşmemiş siparişler (ör. ödeme bekleyen)."
+            >
+              <ul className="space-y-2 text-sm">
+                {otherPurchaseOrders.map((o) => (
+                  <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3 py-2">
+                    <span>
+                      <Link href={`/admin/siparisler/${o.number}`} className="font-semibold text-brand hover:underline">
+                        {o.number}
+                      </Link>
+                      <span className="block text-xs text-muted">
+                        {formatDateTime(o.createdAt)} · {formatMoney(o.priceKurus, o.currency)}
+                      </span>
+                    </span>
+                    <OrderStatusBadge status={o.status} />
+                  </li>
+                ))}
+              </ul>
             </Section>
           )}
           {!trial.convertedOrderId && trial.status !== "CANCELLED" && (

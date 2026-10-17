@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { LayoutDashboard, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, LogOut, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { LinkButton } from "@/components/ui/button";
 import { messages } from "@/i18n/config";
+import { logout } from "@/app/(site)/(auth)/actions";
 import { getSessionUser } from "@/server/auth/session";
+import { countUnreadNotifications } from "@/server/queries/customer";
 import { MobileMenu } from "./mobile-menu";
 
 export const NAV_ITEMS = [
@@ -83,6 +85,8 @@ async function HeaderAccount({ mobile = false }: { mobile?: boolean }) {
       </Link>
     );
   }
+  // Müşteride okunmamış bildirim sayısı panele giden bağlantıda gösterilir
+  const unread = user.role === "PARTNER" ? 0 : await countUnreadNotifications(user.id);
   return (
     <>
       {user.role === "ADMIN" && (
@@ -91,10 +95,23 @@ async function HeaderAccount({ mobile = false }: { mobile?: boolean }) {
           {t.nav.admin}
         </Link>
       )}
-      <Link href={user.role === "PARTNER" ? "/ortak" : "/panel"} className={linkClass}>
+      <Link href={user.role === "PARTNER" ? "/ortak" : unread ? "/panel#bildirimler" : "/panel"} className={linkClass}>
         <LayoutDashboard className="size-4" aria-hidden />
         {user.role === "PARTNER" ? "İş Ortaklığı Paneli" : t.nav.myPanel}
+        {unread > 0 && (
+          <span className="min-w-5 rounded-full bg-danger px-1.5 text-center text-[11px] font-bold leading-5 text-white" aria-label={`${unread} okunmamış bildirim`}>
+            {unread}
+          </span>
+        )}
       </Link>
+      {mobile && (
+        <form action={logout}>
+          <button type="submit" className={`${linkClass} w-full text-muted`}>
+            <LogOut className="size-4" aria-hidden />
+            {t.nav.logout}
+          </button>
+        </form>
+      )}
     </>
   );
 }

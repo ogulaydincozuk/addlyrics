@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { SiteFooter } from "@/components/site/footer";
 import { TrialPromoSlot } from "@/components/site/promo-slots";
+import { ReferralCapture } from "@/components/site/referral-capture";
 import { SiteHeader } from "@/components/site/header";
 
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       <Suspense fallback={null}>
         <TrialPromoSlot />
       </Suspense>
+      <ReferralCapture />
     </div>
   );
 }

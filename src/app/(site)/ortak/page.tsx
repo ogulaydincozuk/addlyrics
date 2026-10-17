@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
-import { LogOut } from "lucide-react";
+import { LogOut, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Alert, Badge, Card, Container, PageSkeleton } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { bpsLabel, codeAvailability, COMMISSION_STATUS_LABEL } from "@/lib/referral";
+import { referralSharePath } from "@/lib/referral-link";
 import { requirePartner } from "@/server/auth/guards";
+import { appUrl } from "@/server/env";
 import { getPartnerDashboard } from "@/server/queries/partner";
 import { logout } from "../(auth)/actions";
 
@@ -66,7 +70,12 @@ async function PartnerPanel() {
       <section>
         <h2 className="mb-3 text-lg font-bold text-ink">Referans kodların</h2>
         {codes.length === 0 ? (
-          <Alert tone="info">Henüz sana atanmış bir kod yok. Kodlar AddLyrics ekibi tarafından tanımlanır.</Alert>
+          <Alert tone="info">
+            Henüz sana atanmış bir kod yok. Kodlar AddLyrics ekibi tarafından tanımlanır.{" "}
+            <Link href="/iletisim" className="font-semibold underline">
+              Ekiple iletişime geç
+            </Link>
+          </Alert>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {codes.map((c) => {
@@ -83,9 +92,17 @@ async function PartnerPanel() {
                       <dd className="font-semibold text-ink">{c.discountType === "PERCENT" ? bpsLabel(c.discountValue) : formatMoney(c.discountValue)}</dd>
                     </div>
                     <div className="flex justify-between gap-3">
-                      <dt className="text-muted">Komisyon oranın</dt>
+                      <dt className="text-muted">{c.packageRates.length ? "Komisyon oranın (genel)" : "Komisyon oranın"}</dt>
                       <dd className="font-semibold text-ink">{bpsLabel(c.commissionRateBps)}</dd>
                     </div>
+                    {[...c.packageRates]
+                      .sort((a, b) => a.package.sortOrder - b.package.sortOrder)
+                      .map((r) => (
+                        <div key={r.package.name} className="flex justify-between gap-3">
+                          <dt className="text-muted">{r.package.name}</dt>
+                          <dd className="font-semibold text-ink">{bpsLabel(r.commissionRateBps)}</dd>
+                        </div>
+                      ))}
                     <div className="flex justify-between gap-3">
                       <dt className="text-muted">Kullanım</dt>
                       <dd className="font-semibold text-ink">
@@ -104,6 +121,30 @@ async function PartnerPanel() {
                       <dd className="text-ink">{c.packages.length ? c.packages.map((p) => p.name).join(", ") : "Tümü"}</dd>
                     </div>
                   </dl>
+                  {availability.ok && (
+                    <div className="mt-4 space-y-2 border-t border-line pt-4">
+                      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                        <Share2 className="size-4 text-brand" aria-hidden /> Takipçilerinle paylaş
+                      </p>
+                      <p className="text-xs text-muted">Bağlantıyla gelen müşterinin kodu sipariş özetinde otomatik doldurulur; satış sana atfedilir.</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={appUrl(referralSharePath(c.code))}
+                          aria-label={`${c.code} paylaşım bağlantısı`}
+                          className="h-9 min-w-0 flex-1 rounded-lg bg-canvas px-3 text-xs text-ink-soft ring-1 ring-line"
+                        />
+                        <CopyButton text={appUrl(referralSharePath(c.code))} label="Bağlantıyı kopyala" />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <CopyButton text={c.code} label="Kodu kopyala" />
+                        <CopyButton
+                          text={`AddLyrics'te ${c.code} koduyla${c.discountType === "PERCENT" && c.discountValue > 0 ? ` ${bpsLabel(c.discountValue)}` : ""} indirim: ${appUrl(referralSharePath(c.code))}`}
+                          label="Paylaşım metnini kopyala"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </Card>
               );
             })}
@@ -139,6 +180,9 @@ async function PartnerPanel() {
                   <td className="px-4 py-3">
                     <Badge tone={c.status === "PAID" ? "success" : c.status === "CANCELLED" ? "neutral" : c.status === "APPROVED" ? "brand" : "warning"}>{COMMISSION_STATUS_LABEL[c.status]}</Badge>
                     {c.payment.status === "REFUNDED" && <Badge tone="danger" className="ml-1">İade</Badge>}
+                    {c.status === "PENDING" && c.payment.status === "SUCCEEDED" && (
+                      <div className="mt-1 text-xs text-muted">Onaya uygun: {formatDate(c.eligibleAt)}</div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -164,7 +208,10 @@ async function PartnerPanel() {
               <li key={p.id} className="flex flex-wrap justify-between gap-2 px-4 py-3">
                 <span>{formatDate(p.paidAt)}</span>
                 <span className="font-semibold text-ink">{formatMoney(p.amountKurus)}</span>
-                <span className="text-muted">{p.method}</span>
+                <span className="text-muted">
+                  {p.method}
+                  {p.reference ? ` · ${p.reference}` : ""}
+                </span>
               </li>
             ))}
           </ul>
