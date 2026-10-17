@@ -104,3 +104,25 @@ Admin → Gösterge Paneli'ndeki **Satışa hazırlık** listesi bu maddeleri ca
 - [ ] Portfolyodaki örnek videoların kullanım izinleri var
 - [ ] En az bir aktif editör eklendi
 - [ ] Veritabanı yedeklemesi açık
+
+## 11. Vercel'de yayın (GitHub'dan otomatik)
+
+Repo Vercel'e bağlıdır; `main` dalına her push yeni bir canlı yayın başlatır. Ayarlar `vercel.json` içindedir:
+
+- **Derleme:** `node scripts/vercel-build.mjs` → migration'lar (havuzsuz bağlantıyla) → `prisma/seed.ts` → `next build`.
+  Seed tekrar çalıştırılabilir; mevcut içeriğin üzerine yazmaz. Yönetici hesabı yalnızca `SEED_ADMIN_EMAIL` ve
+  `SEED_ADMIN_PASSWORD` tanımlıysa (ve yoksa) oluşturulur. Şifreyi yalnızca Vercel panelinden sen gir.
+- **Bölge:** `fra1` (Frankfurt). Veritabanını da aynı bölgede aç.
+- **Veritabanı:** Vercel → Storage → Neon (Postgres). Entegrasyon `DATABASE_URL` (havuzlu) ve
+  `DATABASE_URL_UNPOOLED` değişkenlerini ekler; uygulama havuzlu bağlantıya `pgbouncer=true` ekleyerek bağlanır (`src/server/db.ts`).
+- **Dosyalar:** Vercel → Storage → Blob, erişim **Private**. `STORAGE_DRIVER=vercel-blob`. Tarayıcı dosyayı tek dosyaya
+  ve tek içerik türüne kilitli, 1 saat geçerli imzalı bağlantıyla doğrudan depoya yükler; izleme/indirme yetki
+  kontrolünden sonra 5 dakika geçerli imzalı bağlantıyla yapılır. İndirilen dosyanın adı depolama anahtarıdır
+  (orijinal ad panelde görünür).
+- **Bakım:** Vercel Cron günde bir kez `/api/cron/maintenance` çağırır (`CRON_SECRET` gerekir). Hobby planında cron
+  günde en fazla bir kez çalışır; deneme gecikme uyarılarının saatlik çalışması için Pro plan veya harici bir zamanlayıcı gerekir.
+- **Hız sınırlama** bellek içidir; serverless ortamda örnekler arasında paylaşılmaz (bkz. §4 notları).
+
+Canlı ortamda zorunlu değişkenler: `AUTH_SECRET` (en az 32 karakter, sabit), `APP_URL`, `STORAGE_DRIVER=vercel-blob`,
+`CRON_SECRET`. Ödeme anahtarları yokken `PAYMENT_PROVIDER=none` ile site satış kapalı açılır. SMS (Twilio) ve SMTP
+tanımlanmadan ücretsiz deneme pop-up'ı gösterilmez ve deneme sayfası "yakında" der (`trialPrerequisitesReady`).

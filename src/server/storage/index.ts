@@ -2,6 +2,7 @@ import "server-only";
 import { env } from "../env";
 import { LocalStorageDriver } from "./local";
 import { S3StorageDriver } from "./s3";
+import { VercelBlobStorageDriver } from "./vercel-blob";
 
 export type UploadTarget = {
   url: string;
@@ -17,7 +18,7 @@ export type DownloadOptions = {
 };
 
 export interface StorageDriver {
-  readonly name: "local" | "s3";
+  readonly name: "local" | "s3" | "vercel-blob";
   createUploadTarget(input: { fileId: string; key: string; contentType: string; size: number }): Promise<UploadTarget>;
   stat(key: string): Promise<{ size: number } | null>;
   readHead(key: string, bytes: number): Promise<Buffer>;
@@ -33,7 +34,8 @@ let driver: StorageDriver | null = null;
 
 export function storage(): StorageDriver {
   if (driver) return driver;
-  driver = env().STORAGE_DRIVER === "s3" ? new S3StorageDriver() : new LocalStorageDriver();
+  const kind = env().STORAGE_DRIVER;
+  driver = kind === "s3" ? new S3StorageDriver() : kind === "vercel-blob" ? new VercelBlobStorageDriver() : new LocalStorageDriver();
   return driver;
 }
 

@@ -18,6 +18,7 @@ import {
 import type { TrialInput } from "@/lib/validation";
 import { audit } from "../audit";
 import { db, type Tx } from "../db";
+import { trialPrerequisitesReady } from "../env";
 import { notifyAdmins, notifyUser } from "../notify";
 import { buildStorageKey, storage } from "../storage";
 import { readSystemSetting } from "../system-settings";
@@ -52,6 +53,9 @@ export type TrialEligibility =
 export async function trialEligibility(userId: string | null): Promise<TrialEligibility> {
   const settings = await readSystemSetting("system.trial");
   if (!settings.enabled) return { ok: false, reason: "DISABLED", message: "Ücretsiz deneme şu an kapalı." };
+  if (!trialPrerequisitesReady()) {
+    return { ok: false, reason: "DISABLED", message: "Ücretsiz deneme çok yakında açılıyor. Telefon ve e-posta doğrulaması hazır olduğunda başvurabileceksin." };
+  }
   if (!userId) return { ok: false, reason: "LOGIN", message: "Devam etmek için hesap oluştur veya giriş yap." };
   const user = await db.user.findUniqueOrThrow({
     where: { id: userId },

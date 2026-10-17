@@ -42,7 +42,7 @@ const schema = z.object({
 
   ALLOW_SAMPLE_PACKAGES: bool(false),
 
-  STORAGE_DRIVER: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["local", "s3"]).default("local")),
+  STORAGE_DRIVER: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["local", "s3", "vercel-blob"]).default("local")),
   STORAGE_LOCAL_DIR: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("./storage")),
   S3_BUCKET: optionalString,
   S3_REGION: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("auto")),
@@ -146,6 +146,21 @@ export function smsProvider(): "twilio" | "console" | null {
   // Konsol sağlayıcısı canlı ortamda asla kullanılmaz
   if (e.SMS_PROVIDER === "console" && e.NODE_ENV !== "production") return "console";
   return null;
+}
+
+/** Gönderilen e-postalar gerçekten alıcıya ulaşıyor mu? (canlıda SMTP gerekir; geliştirmede konsol yeterli) */
+export function emailDeliverable() {
+  const e = env();
+  if (e.NODE_ENV !== "production") return true;
+  return e.EMAIL_DRIVER === "smtp" && smtpConfigured();
+}
+
+/**
+ * Ücretsiz deneme canlıda yalnızca telefon (SMS) ve e-posta doğrulaması gerçekten çalışırken açılır;
+ * aksi halde ziyaretçiye tamamlayamayacağı bir akış gösterilmez.
+ */
+export function trialPrerequisitesReady() {
+  return smsProvider() !== null && emailDeliverable();
 }
 
 export function ffmpegPath() {

@@ -8,7 +8,7 @@ import { pickActiveAnnouncement } from "@/lib/announcements";
 import { db } from "../db";
 import { packageSaleState } from "../domain/packages";
 import { getTikTokThumbnail } from "../embeds";
-import { samplePackagesAllowed } from "../env";
+import { samplePackagesAllowed, trialPrerequisitesReady } from "../env";
 import { readSystemSetting } from "../system-settings";
 
 /** Önbellek etiketleri — admin değişikliklerinde updateTag/revalidateTag ile yenilenir. */
@@ -181,6 +181,7 @@ export async function getTrialPromoAvailability() {
   "use cache";
   cacheTag(CACHE_TAGS.settings);
   cacheLife("minutes");
+  if (!trialPrerequisitesReady()) return false;
   const settings = await readSystemSetting("system.trial");
   if (!settings.enabled) return false;
   const open = await db.trialApplication.count({
