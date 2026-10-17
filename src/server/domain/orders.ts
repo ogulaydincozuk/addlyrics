@@ -636,3 +636,12 @@ export async function addInternalNote(orderId: string, message: string, actorId:
   if (text.length < 2) throw new DomainError("Not boş olamaz.");
   await db.orderEvent.create({ data: { orderId, actorId, type: "INTERNAL_NOTE", message: text, visibleToCustomer: false } });
 }
+
+/** Yanıt gerektirmeyen müşteri mesajını (ör. teşekkür) "yanıt bekliyor" listesinden çıkarır; müşteriye görünmez. */
+export async function markMessagesHandled(orderId: string, actorId: string) {
+  const order = await db.order.findUnique({ where: { id: orderId }, select: { id: true } });
+  if (!order) throw new DomainError("Sipariş bulunamadı.");
+  await db.orderEvent.create({
+    data: { orderId, actorId, type: "MESSAGE_HANDLED", message: "Müşteri mesajı yanıt gerektirmiyor olarak işaretlendi.", visibleToCustomer: false },
+  });
+}

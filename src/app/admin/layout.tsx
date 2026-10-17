@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ExternalLink, LogOut } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { requireAdmin } from "@/server/auth/guards";
+import { countAwaitingMessages } from "@/server/queries/messages";
 import { logout } from "../(site)/(auth)/actions";
 import { AdminNav } from "./admin-nav";
 
@@ -18,6 +19,9 @@ export const instant = false;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
+  // Menüde "Mesajlar" yanında yanıt bekleyen konuşma sayısı (sayfa yüklenince ve işlemlerden sonra güncellenir)
+  const awaiting = await countAwaitingMessages();
+  const badges = { "/admin/mesajlar": awaiting.total };
   return (
     <div className="min-h-dvh bg-canvas">
       <header className="sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur">
@@ -42,8 +46,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </header>
       <div className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
         <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start">
-          <Suspense fallback={<AdminNav withActive={false} />}>
-            <AdminNav />
+          <Suspense fallback={<AdminNav withActive={false} badges={badges} />}>
+            <AdminNav badges={badges} />
           </Suspense>
         </aside>
         <main className="min-w-0">{children}</main>

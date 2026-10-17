@@ -53,15 +53,17 @@ export const ADMIN_LINKS = [
   { href: "/admin/denetim", label: "Denetim Kayıtları", icon: History },
 ] as const;
 
-export function AdminNav({ withActive = true }: { withActive?: boolean }) {
-  return withActive ? <Active /> : <List pathname={null} />;
+type Badges = Partial<Record<string, number>>;
+
+export function AdminNav({ withActive = true, badges = {} }: { withActive?: boolean; badges?: Badges }) {
+  return withActive ? <Active badges={badges} /> : <List pathname={null} badges={badges} />;
 }
 
-function Active() {
-  return <List pathname={usePathname()} />;
+function Active({ badges }: { badges: Badges }) {
+  return <List pathname={usePathname()} badges={badges} />;
 }
 
-function List({ pathname }: { pathname: string | null }) {
+function List({ pathname, badges }: { pathname: string | null; badges: Badges }) {
   const active = (href: string) => (pathname ? (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href)) : false);
   return (
     <nav aria-label="Yönetim menüsü">
@@ -78,6 +80,11 @@ function List({ pathname }: { pathname: string | null }) {
             >
               <Icon className="size-[18px]" aria-hidden />
               {label}
+              {!!badges[href] && (
+                <span className="ml-auto min-w-5 rounded-full bg-danger px-1.5 text-center text-[11px] font-bold leading-5 text-white" aria-label={`${badges[href]} yanıt bekleyen`}>
+                  {badges[href]}
+                </span>
+              )}
             </Link>
           </li>
         ))}

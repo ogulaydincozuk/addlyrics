@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Download, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Download, Eye, EyeOff, MessageSquare } from "lucide-react";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/order/status-badge";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, KeyValue } from "@/components/ui/primitives";
@@ -10,6 +10,8 @@ import { messages } from "@/i18n/config";
 import { formatDate, formatDateTime, toDateInputValue } from "@/lib/dates";
 import { VIDEO_FORMATS } from "@/lib/enums";
 import { formatMoney } from "@/lib/money";
+import { MESSAGE_EVENT_TYPES, MESSAGE_THREAD_LABELS, MESSAGE_THREAD_TONES, messageThreadState } from "@/lib/order-messages";
+import { cn } from "@/lib/cn";
 import { missingRequiredItems, REQUIRED_ITEM_LABELS } from "@/lib/order-requirements";
 import { allowedTransitions } from "@/lib/order-status";
 import { snapshotTotalVideos, type PackageSnapshot } from "@/lib/packages";
@@ -23,6 +25,7 @@ import {
   changeStatusAction,
   customerNoteAction,
   internalNoteAction,
+  markMessagesHandledAction,
   refundPaymentAction,
   releaseDeliverableAction,
   setDueDateAction,
@@ -82,6 +85,10 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
   });
   const deliverableRule = publicFileRules().DELIVERABLE;
   const canDeliver = !["PAYMENT_PENDING", "CANCELLED"].includes(order.status);
+  // Müşteriyle mesajlaşma: olaylar yeniden eskiye sıralı gelir
+  const threadState = messageThreadState(order.events.find((e) => (MESSAGE_EVENT_TYPES as readonly string[]).includes(e.type))?.type);
+  const thread = order.events.filter((e) => e.type === "CUSTOMER_MESSAGE" || e.type === "NOTE").reverse();
+  const lastCustomerMessage = order.events.find((e) => e.type === "CUSTOMER_MESSAGE");
 
   return (
     <div className="space-y-6">
@@ -113,6 +120,14 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
           </KeyValue>
           <KeyValue label="Editör">{activeAssignment ? activeAssignment.editor.name : "Atanmadı"}</KeyValue>
         </dl>
+        {threadState === "AWAITING_REPLY" && lastCustomerMessage && (
+          <Alert tone="warning" title="Müşteri yanıt bekliyor" className="mt-4">
+            <span className="line-clamp-2">“{lastCustomerMessage.message}”</span>{" "}
+            <a href="#mesajlar" className="font-semibold underline">
+              Mesajlaşmaya git
+            </a>
+          </Alert>
+        )}
         {missing.length > 0 && order.status !== "CANCELLED" && (
           <Alert tone="warning" title="Eksik dosyalar" className="mt-4">
             {missing.map((m) => REQUIRED_ITEM_LABELS[m]).join(" · ")}
@@ -274,6 +289,42 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
         </div>
 
         <div className="space-y-6">
+          <div id="mesajlar" className="scroll-mt-24">
+            <Section
+              title="Müşteriyle mesajlaşma"
+              description="Üretim öncesi soruları buradan sor; müşteri panelinde ve e-postada görür, sipariş sayfasından yanıtlar."
+              actions={threadState && <Badge tone={MESSAGE_THREAD_TONES[threadState]}>{MESSAGE_THREAD_LABELS[threadState]}</Badge>}
+            >
+              {thread.length ? (
+                <ol className="mb-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                  {thread.map((ev) => {
+                    const fromCustomer = ev.type === "CUSTOMER_MESSAGE";
+                    return (
+                      <li key={ev.id} className={cn("flex", fromCustomer ? "justify-start" : "justify-end")}>
+                        <div className={cn("max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm", fromCustomer ? "bg-canvas ring-1 ring-line" : "bg-brand-tint text-brand-ink")}>
+                          <p className="text-xs font-semibold text-muted">
+                            {fromCustomer ? `Müşteri · ${order.user.name}` : `Ekip${ev.actor ? ` · ${ev.actor.name}` : ""}`} · {formatDateTime(ev.createdAt)}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-ink">{ev.message}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p className="mb-4 flex items-center gap-2 text-sm text-muted">
+                  <MessageSquare className="size-4" aria-hidden /> Henüz mesaj yok.
+                </p>
+              )}
+              <ActionForm action={customerNoteAction.bind(null, order.id)} submitLabel={threadState === "AWAITING_REPLY" ? "Yanıtı gönder" : "Gönder"}>
+                <Textarea name="message" rows={3} aria-label="Müşteriye mesaj" placeholder={threadState === "AWAITING_REPLY" ? "Yanıtını yaz…" : "Müşteriye soru veya not yaz…"} />
+              </ActionForm>
+              {threadState === "AWAITING_REPLY" && (
+                <ActionForm action={markMessagesHandledAction.bind(null, order.id)} submitLabel="Yanıt gerekmiyor" variant="ghost" className="mt-2" />
+              )}
+            </Section>
+          </div>
+
           <Section title="Durum">
             {transitions.length ? (
               <ActionForm action={changeStatusAction.bind(null, order.id)} submitLabel="Durumu güncelle">
@@ -344,12 +395,6 @@ async function OrderAdmin({ params }: Pick<PageProps<"/admin/siparisler/[numara]
               <Input type="date" name="dueDate" defaultValue={toDateInputValue(order.dueDate)} className="w-44" aria-label="Planlanan teslim tarihi" />
             </ActionForm>
             <p className="mt-2 text-xs text-muted">Müşteri panelinde görünür. Boş bırakıp kaydedersen kaldırılır.</p>
-          </Section>
-
-          <Section title="Müşteriye soru / not gönder" description="Üretim öncesi gerekli soruları buradan sor. Müşteri panelinde ve e-postada görür, sipariş sayfasından yanıtlar.">
-            <ActionForm action={customerNoteAction.bind(null, order.id)} submitLabel="Gönder">
-              <Textarea name="message" rows={3} aria-label="Müşteriye not" />
-            </ActionForm>
           </Section>
 
           <Section title="İç not" description="Yalnızca ekip görür.">

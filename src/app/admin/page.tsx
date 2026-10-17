@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MessageSquare } from "lucide-react";
 import { OrderStatusBadge } from "@/components/order/status-badge";
 import { Card } from "@/components/ui/primitives";
 import { formatDate, formatDateTime } from "@/lib/dates";
@@ -8,6 +8,7 @@ import { formatMoney } from "@/lib/money";
 import { ACTIVE_STATUSES } from "@/lib/order-status";
 import { requireAdmin } from "@/server/auth/guards";
 import { db } from "@/server/db";
+import { countAwaitingMessages } from "@/server/queries/messages";
 import { getReadiness } from "@/server/readiness";
 import { AdminPage, Section, Table, Td, Th } from "./_ui";
 
@@ -25,12 +26,13 @@ async function Dashboard() {
   const admin = await requireAdmin();
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [trialChecks, trialLate, trialReady, trialConverted, commissionPending] = await Promise.all([
+  const [trialChecks, trialLate, trialReady, trialConverted, commissionPending, awaitingMessages] = await Promise.all([
     db.trialApplication.count({ where: { status: { in: ["RECEIVED", "FILES_CHECK"] } } }),
     db.trialApplication.count({ where: { previewDueAt: { lt: now }, status: { in: ["QUEUED", "IN_PRODUCTION", "FAILED"] } } }),
     db.trialApplication.count({ where: { previewsReadyAt: { not: null } } }),
     db.trialApplication.count({ where: { convertedOrderId: { not: null } } }),
     db.commission.aggregate({ where: { status: { in: ["PENDING", "APPROVED"] } }, _sum: { amountKurus: true } }),
+    countAwaitingMessages(),
   ]);
   const [byStatus, overdue, revenue, activeEntitlements, customers, recent, alerts, readiness, workload] = await Promise.all([
     db.order.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -67,6 +69,20 @@ async function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {awaitingMessages.total > 0 && (
+        <Link
+          href="/admin/mesajlar"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#fde68a] bg-warning-soft px-4 py-3 text-sm font-semibold text-[#92400e] transition-shadow hover:shadow-[var(--shadow-card)]"
+        >
+          <span className="flex items-center gap-2">
+            <MessageSquare className="size-4" aria-hidden /> {awaitingMessages.total} mesaj yanıt bekliyor
+            <span className="font-normal">
+              ({[awaitingMessages.orders && `${awaitingMessages.orders} sipariş`, awaitingMessages.contact && `${awaitingMessages.contact} iletişim formu`].filter(Boolean).join(", ")})
+            </span>
+          </span>
+          <span>Mesajlara git →</span>
+        </Link>
+      )}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {attention.map((a) => (
           <Link key={a.label} href={a.href} className="rounded-2xl border border-line bg-card p-4 transition-shadow hover:shadow-[var(--shadow-card)]">

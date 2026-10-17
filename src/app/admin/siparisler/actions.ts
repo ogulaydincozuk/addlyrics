@@ -8,7 +8,7 @@ import { ORDER_STATUSES, VIDEO_FORMATS } from "@/lib/enums";
 import { requireAdmin } from "@/server/auth/guards";
 import { addDeliverable, releaseDeliverable, updateProjectPlan } from "@/server/domain/deliveries";
 import { isDomainError } from "@/server/domain/errors";
-import { addInternalNote, assignEditor, changeOrderStatus, sendCustomerNote, setDueDate, unassignEditor } from "@/server/domain/orders";
+import { addInternalNote, assignEditor, changeOrderStatus, markMessagesHandled, sendCustomerNote, setDueDate, unassignEditor } from "@/server/domain/orders";
 import { markPaymentRefunded } from "@/server/payments/service";
 
 /** Ortak sarmalayıcı: yetki kontrolü, iş kuralı hatalarının kullanıcıya gösterilmesi ve sayfa yenileme. */
@@ -67,6 +67,13 @@ export async function customerNoteAction(orderId: string, _prev: ActionState, fo
   return run(async (adminId) => {
     await sendCustomerNote(orderId, message, adminId);
     return "Not müşteriye gönderildi.";
+  });
+}
+
+export async function markMessagesHandledAction(orderId: string, _prev: ActionState, _formData: FormData) {
+  return run(async (adminId) => {
+    await markMessagesHandled(orderId, adminId);
+    return "Yanıt gerekmiyor olarak işaretlendi.";
   });
 }
 
