@@ -1,0 +1,1045 @@
+// AddLyrics — veri modeli
+//
+// Temel ilişki zinciri:
+//   Package ──(satın alma)──▶ Order(kind=PURCHASE) ──▶ Payment ──(başarılı)──▶ PackageEntitlement
+//   PackageEntitlement ──(video hakkı kullanımı)──▶ Order(kind=ENTITLEMENT) ──▶ Project(video) ──▶ Deliverable
+//
+// Ücretsiz deneme:
+//   TrialApplication ──▶ TrialVideo ×3 (ön izleme + temiz ana dosya)
+//   Satın alma: Order(kind=PURCHASE, trialApplicationId) ──(ödeme)──▶ Project(trialVideoId) — deneme videoları
+//   yeniden üretilmez; ana dosyaları ücretli teslim olarak açılır.
+//
+// İş ortaklığı:
+//   Partner ──▶ ReferralCode ──▶ Order (indirim) ──(doğrulanmış ödeme)──▶ Commission ──▶ CommissionPayout
+//
+// Video hakları ve paket tarihleri yalnızca backend tarafından (src/server/domain) yönetilir.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Enum'lar ───────────────────────────────
+
+enum Role {
+  CUSTOMER
+  EDITOR
+  ADMIN
+  // Anlaşmalı iş ortağı (yalnızca kendi iş ortaklığı paneline erişir)
+  PARTNER
+}
+
+enum PackageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VideoStyle {
+  FILM_EDIT
+  MINIMAL
+  MUSIC_VIDEO
+  CUSTOM
+}
+
+enum VideoFormat {
+  VERTICAL
+  HORIZONTAL
+  SQUARE
+}
+
+enum Platform {
+  TIKTOK
+  INSTAGRAM_REELS
+  YOUTUBE_SHORTS
+  YOUTUBE
+  OTHER
+}
+
+enum ReleaseStatus {
+  RELEASED
+  UPCOMING
+  UNRELEASED
+}
+
+enum FootageSource {
+  ADDLYRICS_LICENSED
+  CUSTOMER_PROVIDED
+}
+
+enum OrderKind {
+  PURCHASE
+  ENTITLEMENT
+}
+
+enum OrderStatus {
+  PAYMENT_PENDING
+  NEW
+  AWAITING_FILES
+  ASSIGNED
+  IN_PROGRESS
+  IN_REVIEW
+  READY_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum FileKind {
+  SONG_AUDIO
+  LYRICS
+  MUSIC_VIDEO
+  IMAGE
+  FOOTAGE
+  DELIVERABLE
+  PORTFOLIO_VIDEO
+  PORTFOLIO_POSTER
+  // Ücretsiz deneme: temiz ana dosya (ödeme sonrası teslim), kısa ön izleme kesiti, kapak karesi
+  TRIAL_MASTER
+  TRIAL_PREVIEW
+  TRIAL_POSTER
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADED
+  FAILED
+  DELETED
+}
+
+enum PaymentProvider {
+  IYZICO
+  SHOPIFY
+  MOCK
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum NotificationType {
+  ORDER_CREATED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  STATUS_CHANGED
+  DELIVERY
+  ADMIN_NOTE
+  FILES_NEEDED
+  ADMIN_ALERT
+  TRIAL_UPDATE
+  PREVIEWS_READY
+  ACCOUNT
+}
+
+// Deneme başvurusu ve deneme videosu aşamaları.
+// Başvuru: RECEIVED → FILES_CHECK ⇄ NEEDS_INFO → QUEUED → IN_PRODUCTION → PREVIEW_READY → COMPLETED
+// Video:   QUEUED → IN_PRODUCTION → EDITOR_REVIEW → PREVIEW_READY → COMPLETED (ücretli teslim) · FAILED
+enum TrialStage {
+  RECEIVED
+  FILES_CHECK
+  NEEDS_INFO
+  QUEUED
+  IN_PRODUCTION
+  EDITOR_REVIEW
+  PREVIEW_READY
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum VerificationChannel {
+  SMS
+  EMAIL
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+// Komisyonun hesaplandığı tutar. Yönetici her kod için açıkça seçer; varsayılan yoktur.
+enum CommissionBase {
+  // İndirim öncesi paket liste fiyatı
+  LIST_PRICE
+  // Müşteriden tahsil edilen tutar (indirim sonrası, KDV dahil)
+  PAID_AMOUNT
+  // Tahsil edilen tutarın KDV hariç kısmı (KDV oranı sistem ayarlarından)
+  PAID_AMOUNT_EXCL_VAT
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum AnnouncementDisplay {
+  MODAL
+  BANNER
+  TOAST
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum CommerceChannel {
+  SHOPIFY
+}
+
+// ─────────────────────────────── Kullanıcılar ───────────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String
+  artistName      String?
+  // Ülke koduyla normalize edilmiş telefon (E.164, ör. +905551234567)
+  phone           String?
+  phoneVerifiedAt DateTime?
+  emailVerifiedAt DateTime?
+  kvkkAcceptedAt  DateTime?
+  kvkkVersion     String?
+  passwordHash    String
+  role            Role      @default(CUSTOMER)
+  locale          String    @default("tr")
+  disabledAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions             Session[]
+  passwordResets       PasswordResetToken[]
+  orders               Order[]
+  songs                Song[]
+  files                UploadedFile[]       @relation("FileOwner")
+  entitlements         PackageEntitlement[]
+  payments             Payment[]
+  notifications        Notification[]
+  deliverablesUploaded Deliverable[]        @relation("DeliverableUploader")
+  assignmentsCreated   EditorAssignment[]   @relation("AssignmentCreator")
+  orderEvents          OrderEvent[]
+  editorProfile        Editor?
+  externalAccounts     ExternalCustomer[]
+
+  phoneSlot            PhoneAccountSlot?
+  verificationCodes    VerificationCode[]
+  trialApplication     TrialApplication?
+  trialEvents          TrialEvent[]
+  trialsVerified       TrialApplication[] @relation("TrialVerifier")
+  trialVideosApproved  TrialVideo[]       @relation("TrialQc")
+  partner              Partner?
+  referralCodesCreated ReferralCode[]     @relation("ReferralCodeCreator")
+  commissionsApproved  Commission[]       @relation("CommissionApprover")
+  payoutsCreated       CommissionPayout[] @relation("PayoutCreator")
+  announcementsCreated Announcement[]     @relation("AnnouncementCreator")
+  auditLogs            AuditLog[]
+}
+
+// Bir doğrulanmış telefon numarası en fazla 2 hesaba bağlanabilir. Sınır veritabanında uygulanır:
+// (phone, slot) benzersizdir ve slot yalnızca 1 veya 2 olabilir (CHECK kısıtı, migration SQL'inde).
+// Eşzamanlı doğrulamalarda üçüncü hesap benzersizlik kısıtına takılır.
+model PhoneAccountSlot {
+  id        String   @id @default(cuid())
+  phone     String
+  slot      Int
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([phone, slot])
+}
+
+// Telefon (SMS kodu) ve e-posta (bağlantı) doğrulamaları. Kod/bağlantı yalnızca özet (HMAC) olarak saklanır.
+model VerificationCode {
+  id         String              @id @default(cuid())
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel    VerificationChannel
+  target     String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int                 @default(0)
+  consumedAt DateTime?
+  ip         String?
+  createdAt  DateTime            @default(now())
+
+  @@index([userId, channel, createdAt])
+  @@index([target, createdAt])
+  @@index([codeHash])
+}
+
+model Session {
+  // sha256(token) — düz token yalnızca kullanıcının çerezinde bulunur
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────── Paketler ───────────────────────────────
+
+model Package {
+  id                          String        @id @default(cuid())
+  slug                        String        @unique
+  name                        String
+  tagline                     String?
+  durationMonths              Int
+  // Fiyat kuruş cinsinden tutulur (örn. 149900 = 1.499,00 TL). Belirlenmemişse null.
+  priceKurus                  Int?
+  currency                    String        @default("TRY")
+  // Pakete dahil (ücretli) video sayısı
+  videoCount                  Int?
+  // Ek olarak teslim edilecek bonus video sayısı (ör. 3 aylık pakette +15)
+  bonusVideoCount             Int           @default(0)
+  deliveryTerms               String?
+  deliveryDays                Int?
+  includedFormats             VideoFormat[]
+  includedStyles              VideoStyle[]
+  features                    String[]
+  isFeatured                  Boolean       @default(false)
+  // Ücretsiz denemeden satın almada 3 deneme videosu bu paketin video hakkına dahil mi?
+  // true: 30 videoluk pakette 3 deneme + 27 yeni video = 30. false: deneme videoları pakete ek sayılır.
+  trialCountsTowardPackage    Boolean       @default(true)
+  // Denemeden satın almada ilk teslimin kalan videoları için iş günü (boşsa sistem ayarı kullanılır)
+  trialConversionBusinessDays Int?
+  // Geliştirme ortamı için örnek veri. Üretimde örnek paketler satılamaz.
+  isSample                    Boolean       @default(false)
+  status                      PackageStatus @default(DRAFT)
+  sortOrder                   Int           @default(0)
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
+
+  orders          Order[]
+  entitlements    PackageEntitlement[]
+  channelListings PackageChannelListing[]
+  // Bu pakete uygulanabilen referans kodları (boş liste = tüm paketler)
+  referralCodes   ReferralCode[]
+}
+
+// Bir paketin harici satış kanalındaki (ör. Shopify) karşılığı.
+// Shopify ürünü/varyantı ile AddLyrics paketi arasında birebir eşleme sağlar.
+model PackageChannelListing {
+  id                 String          @id @default(cuid())
+  packageId          String
+  package            Package         @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  channel            CommerceChannel
+  externalProductId  String
+  externalVariantId  String
+  // Kanalda en son doğrulanan fiyat (kuruş). AddLyrics fiyatıyla uyuşmazsa satış engellenir.
+  externalPriceKurus Int?
+  currency           String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@unique([packageId, channel])
+  @@unique([channel, externalVariantId])
+}
+
+// ─────────────────────────────── Şarkılar ve siparişler ───────────────────────────────
+
+model Song {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artistName    String
+  title         String
+  releaseStatus ReleaseStatus
+  language      String
+  lyrics        String?       @db.Text
+  streamingUrl  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  orders Order[]
+  files  UploadedFile[]
+  trial  TrialApplication?
+
+  @@index([userId])
+}
+
+model Order {
+  id            String              @id @default(cuid())
+  number        String              @unique
+  userId        String
+  user          User                @relation(fields: [userId], references: [id])
+  packageId     String
+  package       Package             @relation(fields: [packageId], references: [id])
+  songId        String
+  song          Song                @relation(fields: [songId], references: [id])
+  // Bu siparişin video hakkını kullandığı paket hakkı.
+  // PURCHASE: ödeme onaylanınca bu siparişten doğan hak. ENTITLEMENT: mevcut hak.
+  entitlementId String?
+  entitlement   PackageEntitlement? @relation("EntitlementUsage", fields: [entitlementId], references: [id])
+  kind          OrderKind
+  status        OrderStatus
+  videoCount    Int
+
+  style              VideoStyle
+  customStyleRequest String?        @db.Text
+  footageSource      FootageSource?
+  fontPreference     String?
+  colorPreference    String?
+  referenceUrl       String?
+  notesForEditor     String?        @db.Text
+  formats            VideoFormat[]
+  platforms          Platform[]
+  otherPlatform      String?
+
+  // Sipariş anındaki ticari koşulların kopyası (fiyat değişse de sipariş korunur)
+  packageSnapshot    Json
+  // Ödenecek tutar (indirim sonrası). Ödeme doğrulaması bu tutarla yapılır.
+  priceKurus         Int
+  currency           String            @default("TRY")
+  // İndirim öncesi liste fiyatı ve uygulanan indirim (kuruş)
+  listPriceKurus     Int?
+  discountKurus      Int               @default(0)
+  referralCodeId     String?
+  referralCode       ReferralCode?     @relation(fields: [referralCodeId], references: [id])
+  partnerId          String?
+  partner            Partner?          @relation(fields: [partnerId], references: [id])
+  // Ücretsiz denemeden satın alma: deneme videoları bu siparişe dönüştürülür
+  trialApplicationId String?
+  trialApplication   TrialApplication? @relation("TrialPurchase", fields: [trialApplicationId], references: [id])
+
+  termsVersion            String
+  termsAcceptedAt         DateTime
+  rightsConfirmedAt       DateTime
+  distanceSalesAcceptedAt DateTime?
+
+  billingName           String?
+  billingPhone          String?
+  billingCity           String?
+  billingAddress        String?
+  billingIdentityNumber String?
+
+  dueDate      DateTime?
+  paidAt       DateTime?
+  deliveredAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sourceOfEntitlement PackageEntitlement? @relation("EntitlementSource")
+  payments            Payment[]
+  projects            Project[]
+  files               UploadedFile[]
+  assignments         EditorAssignment[]
+  events              OrderEvent[]
+  notifications       Notification[]
+  deliverables        Deliverable[]
+  commission          Commission?
+  convertedTrial      TrialApplication?   @relation("TrialConversion")
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([entitlementId])
+  @@index([partnerId])
+  @@index([trialApplicationId])
+}
+
+// Başarılı ödeme sonrası oluşan video hakkı.
+model PackageEntitlement {
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id])
+  packageId     String
+  package       Package           @relation(fields: [packageId], references: [id])
+  sourceOrderId String            @unique
+  sourceOrder   Order             @relation("EntitlementSource", fields: [sourceOrderId], references: [id])
+  paymentId     String            @unique
+  payment       Payment           @relation(fields: [paymentId], references: [id])
+  totalVideos   Int
+  usedVideos    Int               @default(0)
+  startsAt      DateTime
+  endsAt        DateTime
+  status        EntitlementStatus @default(ACTIVE)
+  revokedAt     DateTime?
+  revokeReason  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  orders Order[] @relation("EntitlementUsage")
+
+  @@index([userId])
+}
+
+// Tek bir video işi. Bir sipariş, istenen video adedi kadar proje içerir.
+model Project {
+  id           String       @id @default(cuid())
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sequence     Int
+  title        String
+  format       VideoFormat?
+  dueDate      DateTime?
+  deliveredAt  DateTime?
+  // Ücretsiz denemede üretilmiş video (yeniden üretilmez; ana dosyası teslim edilir)
+  trialVideoId String?      @unique
+  trialVideo   TrialVideo?  @relation(fields: [trialVideoId], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  deliverables Deliverable[]
+
+  @@unique([orderId, sequence])
+}
+
+// ─────────────────────────────── Dosyalar ───────────────────────────────
+
+model UploadedFile {
+  id           String            @id @default(cuid())
+  ownerId      String
+  owner        User              @relation("FileOwner", fields: [ownerId], references: [id])
+  orderId      String?
+  order        Order?            @relation(fields: [orderId], references: [id])
+  songId       String?
+  song         Song?             @relation(fields: [songId], references: [id])
+  trialId      String?
+  trial        TrialApplication? @relation(fields: [trialId], references: [id])
+  kind         FileKind
+  storageKey   String            @unique
+  originalName String
+  mimeType     String
+  sizeBytes    BigInt
+  status       UploadStatus      @default(PENDING)
+  createdAt    DateTime          @default(now())
+  uploadedAt   DateTime?
+  deletedAt    DateTime?
+
+  deliverable      Deliverable?
+  portfolioVideos  PortfolioItem[] @relation("PortfolioVideo")
+  portfolioPosters PortfolioItem[] @relation("PortfolioPoster")
+  trialMasterOf    TrialVideo?     @relation("TrialMaster")
+  trialPreviewOf   TrialVideo?     @relation("TrialPreview")
+  trialPosterOf    TrialVideo?     @relation("TrialPoster")
+
+  @@index([ownerId, status])
+  @@index([orderId])
+  @@index([trialId])
+}
+
+model Deliverable {
+  id           String       @id @default(cuid())
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id])
+  fileId       String       @unique
+  file         UploadedFile @relation(fields: [fileId], references: [id])
+  version      Int
+  note         String?      @db.Text
+  uploadedById String
+  uploadedBy   User         @relation("DeliverableUploader", fields: [uploadedById], references: [id])
+  // Müşteri yalnızca releasedAt dolu teslimleri görür
+  releasedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@unique([projectId, version])
+  @@index([orderId])
+}
+
+// ─────────────────────────────── Ödemeler ───────────────────────────────
+
+model Payment {
+  id                String          @id @default(cuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id])
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  provider          PaymentProvider
+  status            PaymentStatus   @default(PENDING)
+  amountKurus       Int
+  currency          String
+  // Sağlayıcıya gönderilen bizim referansımız (iyzico conversationId / Shopify cart attribute)
+  conversationId    String          @unique
+  // iyzico checkout token / Shopify cart id / test token
+  providerToken     String?         @unique
+  // iyzico paymentId / Shopify order GID
+  providerPaymentId String?
+  // Shopify sipariş adı (#1001) gibi insan tarafından okunur referans
+  providerReference String?
+  checkoutUrl       String?
+  failureReason     String?
+  // Sağlayıcı sonucunun özet kopyası (kart bilgisi içermez)
+  rawResult         Json?
+  // Test sağlayıcısının seçtiği sonuç (yalnızca MOCK)
+  mockOutcome       String?
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  entitlement PackageEntitlement?
+  commission  Commission?
+
+  @@unique([provider, providerPaymentId])
+  @@index([orderId])
+  @@index([userId])
+}
+
+// Ödeme sağlayıcısı bildirimleri — tekrar eden bildirimlere karşı benzersiz anahtar.
+model WebhookEvent {
+  id          String          @id @default(cuid())
+  provider    PaymentProvider
+  eventKey    String
+  topic       String?
+  payload     Json
+  receivedAt  DateTime        @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@unique([provider, eventKey])
+}
+
+// Harici kanaldaki müşteri hesabı (ör. Shopify Customer) eşlemesi.
+model ExternalCustomer {
+  id         String          @id @default(cuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel    CommerceChannel
+  externalId String
+  createdAt  DateTime        @default(now())
+
+  @@unique([channel, externalId])
+  @@unique([userId, channel])
+}
+
+// ─────────────────────────────── Editörler ───────────────────────────────
+
+// İlk sürümde editörler giriş yapmaz; admin atama yapar.
+// İleride userId ile bir EDITOR hesabına bağlanarak editör paneli açılabilir.
+model Editor {
+  id          String       @id @default(cuid())
+  name        String
+  email       String?      @unique
+  specialties VideoStyle[]
+  active      Boolean      @default(true)
+  notes       String?
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  assignments EditorAssignment[]
+  trialVideos TrialVideo[]
+}
+
+model EditorAssignment {
+  id           String    @id @default(cuid())
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id])
+  editorId     String
+  editor       Editor    @relation(fields: [editorId], references: [id])
+  assignedById String
+  assignedBy   User      @relation("AssignmentCreator", fields: [assignedById], references: [id])
+  note         String?
+  active       Boolean   @default(true)
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+
+  @@index([orderId, active])
+  @@index([editorId, active])
+}
+
+// ─────────────────────────────── Olay geçmişi ve bildirimler ───────────────────────────────
+
+model OrderEvent {
+  id                String       @id @default(cuid())
+  orderId           String
+  order             Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actorId           String?
+  actor             User?        @relation(fields: [actorId], references: [id])
+  type              String
+  fromStatus        OrderStatus?
+  toStatus          OrderStatus?
+  message           String?      @db.Text
+  visibleToCustomer Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId   String?
+  order     Order?           @relation(fields: [orderId], references: [id])
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  readAt    DateTime?
+  emailedAt DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+}
+
+// ─────────────────────────────── İçerik ───────────────────────────────
+
+model PortfolioItem {
+  id               String        @id @default(cuid())
+  title            String
+  description      String
+  category         VideoStyle
+  orientation      VideoFormat
+  videoFileId      String?
+  videoFile        UploadedFile? @relation("PortfolioVideo", fields: [videoFileId], references: [id])
+  posterFileId     String?
+  posterFile       UploadedFile? @relation("PortfolioPoster", fields: [posterFileId], references: [id])
+  externalVideoUrl String?
+  // Resmî gömülü oynatıcı ile gösterilen harici video (ör. TikTok). Video yeniden barındırılmaz.
+  embedProvider    String?
+  embedId          String?
+  sourceUrl        String?
+  authorHandle     String?
+  // Gerçek video yokken kullanılan yerleşik animasyonlu stil önizlemesi
+  demoPreset       String?
+  isDemo           Boolean       @default(false)
+  published        Boolean       @default(false)
+  sortOrder        Int           @default(0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model SiteSetting {
+  key         String
+  locale      String   @default("tr")
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@id([key, locale])
+}
+
+model FaqItem {
+  id          String   @id @default(cuid())
+  locale      String   @default("tr")
+  question    String
+  answer      String   @db.Text
+  sortOrder   Int      @default(0)
+  published   Boolean  @default(true)
+  // Gerçek hizmet politikasıyla doğrulanması gereken cevaplar
+  needsReview Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([locale, sortOrder])
+}
+
+model ContentPage {
+  id              String    @id @default(cuid())
+  slug            String
+  locale          String    @default("tr")
+  title           String
+  metaDescription String?
+  body            String    @db.Text
+  isLegal         Boolean   @default(false)
+  // Hukuki metinler bir uzman tarafından incelenene kadar taslak kabul edilir
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([slug, locale])
+}
+
+model ContactMessage {
+  id        String    @id @default(cuid())
+  name      String
+  email     String
+  subject   String?
+  message   String    @db.Text
+  createdAt DateTime  @default(now())
+  handledAt DateTime?
+}
+
+// ─────────────────────────────── Ücretsiz deneme ───────────────────────────────
+
+// Kullanıcı başına bir deneme. Dosyalar ekip tarafından doğrulandığında (filesVerifiedAt)
+// 3 deneme videosu oluşur ve ön izleme hedef süresi (previewDueAt) başlar.
+model TrialApplication {
+  id                        String         @id @default(cuid())
+  number                    String         @unique
+  userId                    String         @unique
+  user                      User           @relation(fields: [userId], references: [id])
+  status                    TrialStage     @default(RECEIVED)
+  contactName               String
+  contactEmail              String
+  contactPhone              String
+  songId                    String         @unique
+  song                      Song           @relation(fields: [songId], references: [id])
+  formats                   VideoFormat[]
+  footageSource             FootageSource?
+  notesForEditor            String?        @db.Text
+  termsVersion              String
+  rightsConfirmedAt         DateTime
+  // Müşteri, ses dosyası ile sözlerin aynı şarkıya ait olduğunu beyan eder; ekip dosya kontrolünde doğrular
+  materialsMatchConfirmedAt DateTime
+  // Otomatik dosya kontrolü sonucu (eksik/hatalı alanlar)
+  checkReport               Json?
+  needsInfoMessage          String?        @db.Text
+  filesVerifiedAt           DateTime?
+  filesVerifiedById         String?
+  filesVerifiedBy           User?          @relation("TrialVerifier", fields: [filesVerifiedById], references: [id])
+  previewDueAt              DateTime?
+  previewsReadyAt           DateTime?
+  delayNotifiedAt           DateTime?
+  decideLaterAt             DateTime?
+  convertedOrderId          String?        @unique
+  convertedOrder            Order?         @relation("TrialConversion", fields: [convertedOrderId], references: [id])
+  convertedAt               DateTime?
+  cancelledAt               DateTime?
+  cancelReason              String?
+  // Saklama süresi dolan satın alınmamış denemelerin dosyaları silinir
+  purgedAt                  DateTime?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  videos         TrialVideo[]
+  files          UploadedFile[]
+  events         TrialEvent[]
+  purchaseOrders Order[]        @relation("TrialPurchase")
+
+  @@index([status])
+  @@index([previewDueAt])
+}
+
+// Tek bir deneme videosu (ayrı iş, durum ve dosya kaydı).
+model TrialVideo {
+  id              String           @id @default(cuid())
+  trialId         String
+  trial           TrialApplication @relation(fields: [trialId], references: [id], onDelete: Cascade)
+  sequence        Int
+  style           VideoStyle
+  approach        String
+  status          TrialStage       @default(QUEUED)
+  editorId        String?
+  editor          Editor?          @relation(fields: [editorId], references: [id])
+  // Temiz, tam uzunluktaki ana dosya — yalnızca doğrulanmış ödeme sonrası müşteriye açılır
+  masterFileId    String?          @unique
+  masterFile      UploadedFile?    @relation("TrialMaster", fields: [masterFileId], references: [id])
+  // Kısa, filigranlı ön izleme kesiti — müşteriye süreli imzalı bağlantıyla gösterilir
+  previewFileId   String?          @unique
+  previewFile     UploadedFile?    @relation("TrialPreview", fields: [previewFileId], references: [id])
+  posterFileId    String?          @unique
+  posterFile      UploadedFile?    @relation("TrialPoster", fields: [posterFileId], references: [id])
+  previewStartSec Int              @default(0)
+  previewSeconds  Int?
+  watermarked     Boolean          @default(false)
+  blurred         Boolean          @default(false)
+  // "ffmpeg" (sunucuda otomatik kesildi) veya "upload" (editör ayrı dışa aktardı)
+  previewSource   String?
+  processingError String?          @db.Text
+  attempts        Int              @default(0)
+  lastAttemptAt   DateTime?
+  previewReadyAt  DateTime?
+  qcApprovedAt    DateTime?
+  qcById          String?
+  qcBy            User?            @relation("TrialQc", fields: [qcById], references: [id])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  project Project?
+
+  @@unique([trialId, sequence])
+  @@index([status])
+}
+
+model TrialEvent {
+  id                String           @id @default(cuid())
+  trialId           String
+  trial             TrialApplication @relation(fields: [trialId], references: [id], onDelete: Cascade)
+  actorId           String?
+  actor             User?            @relation(fields: [actorId], references: [id])
+  type              String
+  message           String?          @db.Text
+  visibleToCustomer Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+
+  @@index([trialId, createdAt])
+}
+
+// ─────────────────────────────── İş ortaklığı ───────────────────────────────
+
+model Partner {
+  id             String   @id @default(cuid())
+  // Panel girişi için bağlı hesap (rolü PARTNER)
+  userId         String?  @unique
+  user           User?    @relation(fields: [userId], references: [id])
+  name           String
+  email          String?
+  phone          String?
+  // Sosyal medya hesapları: [{ platform, handle }]
+  socialAccounts Json     @default("[]")
+  notes          String?  @db.Text
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  codes       ReferralCode[]
+  orders      Order[]
+  commissions Commission[]
+  payouts     CommissionPayout[]
+}
+
+// Yalnızca yöneticiler oluşturur/düzenler. Kod büyük harfle saklanır ve benzersizdir.
+model ReferralCode {
+  id                String         @id @default(cuid())
+  code              String         @unique
+  partnerId         String
+  partner           Partner        @relation(fields: [partnerId], references: [id])
+  discountType      DiscountType
+  // PERCENT: baz puan (1000 = %10) · FIXED: kuruş
+  discountValue     Int
+  // Komisyon oranı, baz puan (1000 = %10)
+  commissionRateBps Int
+  commissionBase    CommissionBase
+  startsAt          DateTime?
+  endsAt            DateTime?
+  usageLimit        Int?
+  // Doğrulanmış ödemeyle tamamlanan kullanım sayısı
+  usageCount        Int            @default(0)
+  active            Boolean        @default(true)
+  createdById       String
+  createdBy         User           @relation("ReferralCodeCreator", fields: [createdById], references: [id])
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  packages    Package[]
+  orders      Order[]
+  commissions Commission[]
+
+  @@index([partnerId])
+}
+
+// Doğrulanmış ödemeden doğan komisyon. Her sipariş için en fazla bir kayıt.
+model Commission {
+  id               String            @id @default(cuid())
+  orderId          String            @unique
+  order            Order             @relation(fields: [orderId], references: [id])
+  paymentId        String            @unique
+  payment          Payment           @relation(fields: [paymentId], references: [id])
+  partnerId        String
+  partner          Partner           @relation(fields: [partnerId], references: [id])
+  referralCodeId   String
+  referralCode     ReferralCode      @relation(fields: [referralCodeId], references: [id])
+  status           CommissionStatus  @default(PENDING)
+  baseType         CommissionBase
+  baseAmountKurus  Int
+  rateBps          Int
+  amountKurus      Int
+  // Hesaplamanın açık dökümü (liste fiyatı, indirim, tahsilat, KDV oranı)
+  calculation      Json
+  // Bu tarihten sonra onaylanabilir (cayma/iade süresi ayarı)
+  eligibleAt       DateTime
+  approvedAt       DateTime?
+  approvedById     String?
+  approvedBy       User?             @relation("CommissionApprover", fields: [approvedById], references: [id])
+  payoutId         String?
+  payout           CommissionPayout? @relation(fields: [payoutId], references: [id])
+  paidAt           DateTime?
+  cancelledAt      DateTime?
+  cancelReason     String?
+  // Komisyon ödendikten sonra iade gelirse: sonraki ödemeden mahsup edilir
+  clawbackAt       DateTime?
+  clawbackPayoutId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([partnerId, status])
+  @@index([status])
+}
+
+model CommissionPayout {
+  id          String   @id @default(cuid())
+  partnerId   String
+  partner     Partner  @relation(fields: [partnerId], references: [id])
+  // Ödenen net tutar (onaylı komisyonlar − mahsup edilen iadeler)
+  amountKurus Int
+  method      String
+  reference   String?
+  note        String?  @db.Text
+  paidAt      DateTime
+  createdById String
+  createdBy   User     @relation("PayoutCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  commissions Commission[]
+
+  @@index([partnerId, paidAt])
+}
+
+// ─────────────────────────────── Duyurular ve denetim ───────────────────────────────
+
+model Announcement {
+  id          String              @id @default(cuid())
+  title       String
+  body        String              @db.Text
+  linkLabel   String?
+  linkUrl     String?
+  display     AnnouncementDisplay @default(BANNER)
+  status      AnnouncementStatus  @default(DRAFT)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  // Büyük değer önce gösterilir; eşitse en güncel yayın önce
+  priority    Int                 @default(0)
+  publishedAt DateTime?
+  createdById String
+  createdBy   User                @relation("AnnouncementCreator", fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([status, startsAt, endsAt])
+}
+
+// Yönetici ve kritik sistem işlemlerinin kaydı.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  summary    String?
+  data       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([actorId])
+}

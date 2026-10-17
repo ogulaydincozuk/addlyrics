@@ -1,0 +1,21 @@
+{
+  "name": "addlyrics-promo",
+  "private": true,
+  "description": "AddLyrics tanıtım videosu (Remotion)",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "music": "node scripts/make-music.mjs promo && node scripts/make-music.mjs ad30 && node scripts/make-music.mjs ad15",
+    "voice": "node scripts/make-voice.mjs",
+    "icons": "node scripts/extract-icons.mjs",
+    "render": "remotion render src/index.ts AddLyricsTanitim out/addlyrics-tanitim.mp4",
+    "render:ad30": "remotion render src/index.ts Reklam30 out/reklam/addlyrics-reklam-30sn-9x16.mp4",
+    "render:ad15": "remotion render src/index.ts Reklam15 out/reklam/addlyrics-reklam-15sn-9x16.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.530",
+    "@remotion/google-fonts": "4.0.530",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.530"
+  }
+}
