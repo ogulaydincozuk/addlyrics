@@ -44,6 +44,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Düşük bellekli makinelerde derleme işçisi sayısını sınırlamak için: NEXT_BUILD_CPUS=2 npm run build
     ...(process.env.NEXT_BUILD_CPUS ? { cpus: Number(process.env.NEXT_BUILD_CPUS) } : {}),
+    // Disk alanı dar makinelerde geliştirme önbelleğini (~1 GB, .next/dev/cache) kapatmak için: NEXT_DEV_DISK_CACHE=off
+    ...(process.env.NEXT_DEV_DISK_CACHE === "off" ? { turbopackFileSystemCacheForDev: false } : {}),
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

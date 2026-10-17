@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "maintenance": "tsx --conditions=react-server scripts/maintenance.ts"
+    "maintenance": "tsx --conditions=react-server scripts/maintenance.ts",
+    "test-user": "tsx scripts/create-test-user.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1152.0",

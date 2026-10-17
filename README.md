@@ -50,6 +50,7 @@ npm run dev                   # http://localhost:3000
 | `npm run db:deploy` | Migration'ları uygula (üretim/CI) |
 | `npm run db:seed` | Başlangıç verisi (tekrar çalıştırılabilir; mevcut kayıtların üzerine yazmaz) |
 | `npm run maintenance` | Yarım kalan yüklemeleri ve süresi dolan oturumları temizler, geciken denemeler için uyarı gönderir, saklama süresi dolan deneme dosyalarını siler (**saatlik** cron önerilir) |
+| `npm run test-user` | Yalnızca geliştirme: `.env` içindeki `TEST_ADMIN_*`, `TEST_USER_*`, `TEST_PARTNER_*` bilgileriyle yönetici, e-posta/telefon onaylı müşteri ve iş ortağı test hesaplarını oluşturur veya şifrelerini yeniler (yerel veritabanı dışında çalışmaz) |
 
 ## Paketler ve iş kuralları (mevcut durum)
 
