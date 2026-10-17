@@ -7,7 +7,7 @@ import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectComm
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env, s3Configured } from "../env";
 import type { DownloadOptions, StorageDriver, UploadTarget } from "./index";
-import { safeDownloadName } from "./file-rules";
+import { contentDisposition } from "./file-rules";
 
 /**
  * S3 uyumlu depolama (AWS S3, Cloudflare R2, MinIO).
@@ -84,7 +84,7 @@ export class S3StorageDriver implements StorageDriver {
   }
 
   async downloadResponse(key: string, opts: DownloadOptions) {
-    const disposition = `${opts.inline ? "inline" : "attachment"}; filename="${safeDownloadName(opts.fileName)}"; filename*=UTF-8''${encodeURIComponent(opts.fileName)}`;
+    const disposition = contentDisposition(opts.fileName, !!opts.inline);
     const url = await getSignedUrl(
       this.s3(),
       new GetObjectCommand({

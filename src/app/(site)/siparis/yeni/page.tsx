@@ -8,7 +8,7 @@ import { requireUser } from "@/server/auth/guards";
 import { SALE_STATE_MESSAGES } from "@/server/domain/packages";
 import { getPublicPackage } from "@/server/queries/public";
 import { publicFileRules } from "@/server/storage/file-rules";
-import { submitPurchaseOrder } from "../actions";
+import { checkReferralCodeAction, submitPurchaseOrder } from "../actions";
 
 export const metadata: Metadata = { title: "Sipariş Oluştur", robots: { index: false } };
 
@@ -68,6 +68,7 @@ async function NewOrderContent({ searchParams }: Pick<PageProps<"/siparis/yeni">
       defaultArtistName={user.artistName ?? ""}
       draftKey={`addlyrics-order:${user.id}:${slug}`}
       submit={submitPurchaseOrder.bind(null, slug)}
+      checkReferralCode={checkReferralCodeAction.bind(null, slug)}
     />
   );
 }

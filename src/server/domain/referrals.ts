@@ -246,6 +246,18 @@ async function resolveCode(codeInput: string, userId: string, packageId: string)
   return record;
 }
 
+/**
+ * Sipariş oluşturulmadan önce kodu doğrular ve indirimi hesaplar (sipariş özetindeki önizleme ve
+ * sipariş öncesi kontrol). Hiçbir kayıt değiştirmez; kesin indirim siparişe uygulanırken yeniden hesaplanır.
+ */
+export async function previewReferralCode(userId: string, packageSlug: string, codeInput: string) {
+  const pkg = await db.package.findUnique({ where: { slug: packageSlug }, select: { id: true, priceKurus: true, currency: true } });
+  if (!pkg || pkg.priceKurus == null) throw new DomainError("Paket bulunamadı.", "PACKAGE");
+  const code = await resolveCode(codeInput, userId, pkg.id);
+  const discountKurus = computeDiscount(pkg.priceKurus, code.discountType, code.discountValue);
+  return { code: code.code, listPriceKurus: pkg.priceKurus, discountKurus, priceKurus: pkg.priceKurus - discountKurus, currency: pkg.currency };
+}
+
 export async function applyReferralCodeToOrder(userId: string, orderNumber: string, codeInput: string) {
   const order = await db.order.findFirst({ where: { number: orderNumber, userId } });
   if (!order) throw new DomainError("Sipariş bulunamadı.", "NOT_FOUND");

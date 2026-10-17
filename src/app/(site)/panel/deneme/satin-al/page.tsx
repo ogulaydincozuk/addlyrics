@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Gift } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Gift, TicketPercent } from "lucide-react";
 import { Alert, Badge, Card } from "@/components/ui/primitives";
 import { formatMoney } from "@/lib/money";
 import { perVideoKurus } from "@/lib/packages";
@@ -50,6 +50,13 @@ async function Choose() {
 
   return (
     <div className="space-y-5">
+      <p className="flex items-start gap-2 rounded-xl border border-dashed border-line bg-card px-4 py-3 text-sm text-ink-soft">
+        <TicketPercent className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+        <span>
+          <strong className="text-ink">Referans veya indirim kodun var mı?</strong> Paketini seçtikten sonra açılan ödeme sayfasının en üstünde
+          girebilirsin; indirim toplam tutara hemen yansır.
+        </span>
+      </p>
       <div className="grid gap-4 lg:grid-cols-3">
         {packages.map((p) => {
           const state = packageSaleState(p);
@@ -109,7 +116,7 @@ async function Choose() {
           );
         })}
       </div>
-      <p className="text-xs text-muted">Tek seferlik ödeme, otomatik yenileme yok. İndirim/referans kodunu ödeme sayfasında girebilirsin.</p>
+      <p className="text-xs text-muted">Tek seferlik ödeme, otomatik yenileme yok.</p>
     </div>
   );
 }

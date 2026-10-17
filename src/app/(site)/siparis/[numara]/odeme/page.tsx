@@ -71,6 +71,15 @@ async function PaymentContent({ params }: Pick<PageProps<"/siparis/[numara]/odem
           </Alert>
         )}
 
+        <Card className="p-5 sm:p-6">
+          <ReferralCodeForm
+            orderNumber={order.number}
+            appliedCode={order.referralCode?.code ?? null}
+            discountLabel={order.discountKurus > 0 ? formatMoney(order.discountKurus, order.currency) : null}
+            remove={removeCodeAction.bind(null, order.number)}
+          />
+        </Card>
+
         <Card className="p-5 sm:p-8">
           <BillingForm
             action={startPaymentAction.bind(null, order.number)}
@@ -125,13 +134,6 @@ async function PaymentContent({ params }: Pick<PageProps<"/siparis/[numara]/odem
           <div className="mt-5 flex items-end justify-between border-t border-line pt-4">
             <span className="text-sm font-semibold text-ink">Toplam</span>
             <span className="font-display text-2xl font-extrabold text-ink">{amountLabel}</span>
-          </div>
-          <div className="mt-5 border-t border-line pt-4">
-            <ReferralCodeForm
-              orderNumber={order.number}
-              appliedCode={order.referralCode?.code ?? null}
-              remove={removeCodeAction.bind(null, order.number)}
-            />
           </div>
           <ul className="mt-5 space-y-2 text-xs text-muted">
             <li className="flex gap-2">

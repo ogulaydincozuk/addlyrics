@@ -9,7 +9,7 @@ import { addMonths, comparePackages, missingSaleFields, perVideoKurus, saleState
 import { slugify } from "@/lib/slug";
 import { iyzicoAuthHeaders, verifyIyzicoWebhookSignature } from "@/server/payments/iyzico";
 import { parseShopifyOrderPayload, verifyShopifyWebhook } from "@/server/payments/shopify";
-import { matchesSignature, validateDeclaredFile } from "@/server/storage/file-rules";
+import { contentDisposition, matchesSignature, safeDownloadName, validateDeclaredFile } from "@/server/storage/file-rules";
 import { parseRange } from "@/server/storage/local";
 import { createHmac } from "node:crypto";
 
@@ -142,6 +142,22 @@ describe("Shopify", () => {
 });
 
 describe("dosya kuralları", () => {
+  it("Türkçe dosya adları indirme başlığını bozmaz; özgün ad UTF-8 olarak korunur", () => {
+    const name = "Önizleme ılık şarkı (Çığ) 'İlk'.mp4";
+    const value = contentDisposition(name, true);
+    // HTTP başlıkları yalnızca ASCII taşıyabilir; aksi halde yanıt oluşturulurken hata fırlatılır
+    expect(() => new Headers({ "Content-Disposition": value })).not.toThrow();
+    expect(value).toMatch(/^[\x20-\x7e]+$/);
+    expect(value).toContain(`filename="Onizleme ilik sarki (Cig) 'Ilk'.mp4"`);
+    const star = value.split("filename*=UTF-8''")[1]!;
+    expect(star).not.toMatch(/['()*]/);
+    expect(decodeURIComponent(star)).toBe(name);
+    expect(contentDisposition("a.mp4", false)).toMatch(/^attachment; /);
+    expect(safeDownloadName('kötü"ad\r\n/x;y.mp3')).toBe("kotu_ad___x_y.mp3");
+    expect(safeDownloadName("日本")).toBe("__");
+    expect(safeDownloadName("   ")).toBe("dosya");
+  });
+
   it("uzantı, MIME ve boyut", () => {
     expect(validateDeclaredFile("SONG_AUDIO", "sarki.mp3", "audio/mpeg", 1000).ok).toBe(true);
     expect(validateDeclaredFile("SONG_AUDIO", "sarki.exe", "audio/mpeg", 1000).ok).toBe(false);

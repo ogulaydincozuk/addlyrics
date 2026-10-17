@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { signToken } from "../crypto";
 import { env } from "../env";
 import type { DownloadOptions, StorageDriver, UploadTarget } from "./index";
-import { safeDownloadName } from "./file-rules";
+import { contentDisposition } from "./file-rules";
 
 /**
  * Yerel disk sürücüsü — geliştirme ve tek sunuculu kurulumlar için.
@@ -101,7 +101,7 @@ export class LocalStorageDriver implements StorageDriver {
     const info = await this.stat(key);
     if (!info) return new Response("Dosya bulunamadı", { status: 404 });
 
-    const disposition = `${opts.inline ? "inline" : "attachment"}; filename="${safeDownloadName(opts.fileName)}"; filename*=UTF-8''${encodeURIComponent(opts.fileName)}`;
+    const disposition = contentDisposition(opts.fileName, !!opts.inline);
     const baseHeaders: Record<string, string> = {
       "Content-Type": opts.contentType,
       "Content-Disposition": disposition,

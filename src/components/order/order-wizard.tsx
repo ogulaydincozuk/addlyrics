@@ -13,8 +13,10 @@ import {
   Plus,
   ShieldCheck,
   Sparkles,
+  TicketPercent,
   Type,
   Video,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -42,7 +44,7 @@ import { formatMoney } from "@/lib/money";
 import { NO_REVISION_TEXT, PREPARATION_TEXT } from "@/lib/packages";
 import { missingRequiredItems, REQUIRED_ITEM_LABELS } from "@/lib/order-requirements";
 import { flattenErrors, formatStepSchema, orderInputSchema, songStepSchema, styleStepSchema } from "@/lib/validation";
-import type { OrderSubmitResult } from "@/app/(site)/siparis/actions";
+import type { OrderSubmitResult, ReferralPreviewResult } from "@/app/(site)/siparis/actions";
 
 const t = messages();
 
@@ -87,7 +89,11 @@ type Draft = {
   uploads: Partial<Record<CustomerFileKind, UploadedFileInfo[]>>;
   rightsConfirmed: boolean;
   termsAccepted: boolean;
+  /** Satın almada isteğe bağlı referans/indirim kodu (sunucuda doğrulanır) */
+  referralCode: string;
 };
+
+type CodePreview = Extract<ReferralPreviewResult, { ok: true }>;
 
 const STEPS = [
   { key: "song", label: "Şarkı" },
@@ -125,6 +131,7 @@ function emptyDraft(artistName: string, pkg: WizardPackage): Draft {
     uploads: {},
     rightsConfirmed: false,
     termsAccepted: false,
+    referralCode: "",
   };
 }
 
@@ -156,6 +163,8 @@ type WizardProps = {
   defaultArtistName: string;
   draftKey: string;
   submit: (raw: unknown) => Promise<OrderSubmitResult>;
+  /** Satın almada referans kodunu sipariş öncesinde doğrulayıp indirimi gösterir */
+  checkReferralCode?: (code: string) => Promise<ReferralPreviewResult>;
 };
 
 /**
@@ -175,7 +184,7 @@ export function OrderWizard(props: WizardProps) {
   return <OrderWizardInner {...props} />;
 }
 
-function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submit }: WizardProps) {
+function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submit, checkReferralCode }: WizardProps) {
   // Kaydedilmiş taslak (yalnızca istemcide çalışır; bileşen sunucuda render edilmez)
   const [initial] = useState(() => loadDraft(draftKey, emptyDraft(defaultArtistName, pkg)));
   const [draft, setDraft] = useState<Draft>(initial.draft);
@@ -184,6 +193,10 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [restored, setRestored] = useState(initial.restored);
   const [pending, startTransition] = useTransition();
+  const [codePreview, setCodePreview] = useState<CodePreview | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codePending, startCodeTransition] = useTransition();
+  const codeEnabled = mode === "purchase" && !!checkReferralCode;
 
   // Taslağı tarayıcıda sakla (sayfa yenilenirse kaybolmasın)
   useEffect(() => {
@@ -277,6 +290,28 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function applyCode() {
+    const code = draft.referralCode.trim();
+    setCodeError(null);
+    if (!code || !checkReferralCode) return;
+    startCodeTransition(async () => {
+      const result = await checkReferralCode(code);
+      if (result.ok) {
+        setCodePreview(result);
+        setDraft((d) => ({ ...d, referralCode: result.code }));
+      } else {
+        setCodePreview(null);
+        setCodeError(result.message);
+      }
+    });
+  }
+
+  function removeCode() {
+    setCodePreview(null);
+    setCodeError(null);
+    setDraft((d) => ({ ...d, referralCode: "" }));
+  }
+
   function handleSubmit() {
     setSubmitError(null);
     for (let i = 0; i < 4; i++) {
@@ -299,11 +334,16 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
       try {
         localStorage.removeItem(draftKey);
       } catch {}
-      const result = await submit(parsed.data);
+      const referralCode = codeEnabled ? draft.referralCode.trim() : "";
+      const result = await submit(referralCode ? { ...parsed.data, referralCode } : parsed.data);
       // Başarılı olursa sunucu yönlendirir; buraya yalnızca hata durumunda gelinir
       if (result && !result.ok) {
         setSubmitError(result.error);
         if (result.fieldErrors) setErrors(result.fieldErrors);
+        if (result.fieldErrors?.referralCode) {
+          setCodePreview(null);
+          setCodeError(result.fieldErrors.referralCode);
+        }
         try {
           localStorage.setItem(draftKey, JSON.stringify({ draft, step }));
         } catch {}
@@ -683,7 +723,21 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
           {step === 4 && (
             <section aria-labelledby="adim-ozet" className="space-y-6">
               <StepTitle id="adim-ozet" title="Sipariş özeti" description="Bilgilerini kontrol et ve siparişini onayla." />
-              <SummaryList draft={draft} pkg={pkg} mode={mode} />
+              <SummaryList draft={draft} pkg={pkg} mode={mode} codePreview={codePreview} />
+              {codeEnabled && (
+                <ReferralCodeBox
+                  value={draft.referralCode}
+                  onChange={(v) => {
+                    setDraft((d) => ({ ...d, referralCode: v }));
+                    setCodeError(null);
+                  }}
+                  onApply={applyCode}
+                  onRemove={removeCode}
+                  preview={codePreview}
+                  error={codeError}
+                  pending={codePending}
+                />
+              )}
               <RequirementList missing={missing} compact />
               <div className="rounded-2xl border border-line bg-canvas p-4 sm:p-5" data-error={!!e.termsAccepted}>
                 <Checkbox
@@ -746,7 +800,7 @@ function OrderWizardInner({ mode, pkg, rules, defaultArtistName, draftKey, submi
       </div>
 
       <aside className="lg:sticky lg:top-24">
-        <OrderSidebar pkg={pkg} mode={mode} videoCount={draft.format.videoCount} />
+        <OrderSidebar pkg={pkg} mode={mode} videoCount={draft.format.videoCount} codePreview={codePreview} codeHint={codeEnabled && step < STEPS.length - 1} />
       </aside>
     </div>
   );
@@ -843,7 +897,74 @@ function RequirementList({ missing, compact = false }: { missing: ReturnType<typ
   );
 }
 
-function SummaryList({ draft, pkg, mode }: { draft: Draft; pkg: WizardPackage; mode: "purchase" | "entitlement" }) {
+function ReferralCodeBox({
+  value,
+  onChange,
+  onApply,
+  onRemove,
+  preview,
+  error,
+  pending,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onApply: () => void;
+  onRemove: () => void;
+  preview: CodePreview | null;
+  error: string | null;
+  pending: boolean;
+}) {
+  if (preview) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-soft px-4 py-3 text-sm text-[#166534]" role="status">
+        <span className="flex items-center gap-2 font-semibold">
+          <TicketPercent className="size-4 shrink-0" aria-hidden /> {preview.code} uygulandı: −{preview.discountLabel} · Ödenecek {preview.totalLabel}
+        </span>
+        <button type="button" onClick={onRemove} className="inline-flex items-center gap-1 text-xs font-semibold hover:underline">
+          <X className="size-3.5" aria-hidden /> Kaldır
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-line bg-canvas p-4 sm:p-5" data-error={!!error}>
+      <label htmlFor="referralCode" className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <TicketPercent className="size-4 text-brand" aria-hidden /> Referans veya indirim kodun var mı?
+      </label>
+      <p className="mt-1 text-xs text-muted">İş ortaklarımızdan veya bir kampanyadan aldığın kodu yaz; indirim toplam tutara hemen yansır.</p>
+      <div className="mt-3 flex gap-2">
+        <Input
+          id="referralCode"
+          value={value}
+          onChange={(ev) => onChange(ev.target.value)}
+          onKeyDown={(ev) => {
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              onApply();
+            }
+          }}
+          autoComplete="off"
+          autoCapitalize="characters"
+          maxLength={30}
+          placeholder="KOD"
+          className="uppercase"
+          aria-invalid={!!error}
+          aria-describedby={error ? "referralCode-error" : undefined}
+        />
+        <Button type="button" variant="secondary" size="sm" onClick={onApply} disabled={pending || !value.trim()} className="shrink-0">
+          {pending ? "…" : "Uygula"}
+        </Button>
+      </div>
+      {error && (
+        <p id="referralCode-error" className="mt-2 text-xs text-danger" role="status">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SummaryList({ draft, pkg, mode, codePreview }: { draft: Draft; pkg: WizardPackage; mode: "purchase" | "entitlement"; codePreview: CodePreview | null }) {
   const files = Object.entries(draft.uploads).flatMap(([kind, list]) => (list ?? []).map((f) => ({ ...f, kind: kind as CustomerFileKind })));
   const rows: Array<[string, React.ReactNode]> = [
     ["Seçilen paket", `${pkg.name}${pkg.isSample ? " (örnek veri)" : ""}`],
@@ -851,7 +972,19 @@ function SummaryList({ draft, pkg, mode }: { draft: Draft; pkg: WizardPackage; m
     ["Video adedi", mode === "purchase" ? `Bu şarkı için ${draft.format.videoCount} · pakette toplam ${pkg.totalVideos}${pkg.bonusVideos ? ` (${pkg.bonusVideos} bonus dahil)` : ""}` : `${draft.format.videoCount} video`],
     ...(mode === "purchase" && pkg.priceKurus != null
       ? ([
-          ["Toplam ücret", <strong key="p">{formatMoney(pkg.priceKurus, pkg.currency)}</strong>],
+          [
+            "Toplam ücret",
+            codePreview ? (
+              <span key="p">
+                <s className="text-muted">{codePreview.listLabel}</s> <strong>{codePreview.totalLabel}</strong>{" "}
+                <span className="text-success">
+                  ({codePreview.code} ile −{codePreview.discountLabel})
+                </span>
+              </span>
+            ) : (
+              <strong key="p">{formatMoney(pkg.priceKurus, pkg.currency)}</strong>
+            ),
+          ],
           ["Video başına maliyet", formatMoney(Math.round(pkg.priceKurus / pkg.totalVideos), pkg.currency)],
         ] as Array<[string, React.ReactNode]>)
       : []),
@@ -878,7 +1011,19 @@ function SummaryList({ draft, pkg, mode }: { draft: Draft; pkg: WizardPackage; m
   );
 }
 
-function OrderSidebar({ pkg, mode, videoCount }: { pkg: WizardPackage; mode: "purchase" | "entitlement"; videoCount: number }) {
+function OrderSidebar({
+  pkg,
+  mode,
+  videoCount,
+  codePreview,
+  codeHint,
+}: {
+  pkg: WizardPackage;
+  mode: "purchase" | "entitlement";
+  videoCount: number;
+  codePreview: CodePreview | null;
+  codeHint: boolean;
+}) {
   return (
     <div className="rounded-[1.4rem] border border-line bg-card p-6 shadow-[var(--shadow-card)]">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted">{mode === "purchase" ? "Seçilen paket" : "Kullanılan paket"}</p>
@@ -888,8 +1033,26 @@ function OrderSidebar({ pkg, mode, videoCount }: { pkg: WizardPackage; mode: "pu
       </div>
       {mode === "purchase" && pkg.priceKurus != null ? (
         <>
-          <p className="mt-4 font-display text-3xl font-extrabold text-ink">{formatMoney(pkg.priceKurus, pkg.currency)}</p>
+          {codePreview ? (
+            <>
+              <p className="mt-4 text-sm text-muted line-through">{codePreview.listLabel}</p>
+              <p className="font-display text-3xl font-extrabold text-ink">{codePreview.totalLabel}</p>
+              <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-success">
+                <TicketPercent className="size-4" aria-hidden /> {codePreview.code}: −{codePreview.discountLabel}
+              </p>
+            </>
+          ) : (
+            <p className="mt-4 font-display text-3xl font-extrabold text-ink">{formatMoney(pkg.priceKurus, pkg.currency)}</p>
+          )}
           <p className="mt-1 text-sm text-muted">Tek seferlik ödeme · otomatik yenileme yok</p>
+          {codeHint && !codePreview && (
+            <p className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-xs text-ink-soft">
+              <TicketPercent className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+              <span>
+                Referans veya indirim kodun varsa son adımda (<strong>Özet</strong>) girebilirsin.
+              </span>
+            </p>
+          )}
           <div className="mt-4 rounded-xl bg-brand-tint px-4 py-3 text-sm text-brand-ink">
             Video başına <strong>{formatMoney(Math.round(pkg.priceKurus / pkg.totalVideos), pkg.currency)}</strong>
           </div>

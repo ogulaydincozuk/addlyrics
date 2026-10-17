@@ -7,6 +7,7 @@ import {
   approveCommission,
   createPartner,
   createReferralCode,
+  previewReferralCode,
   recordCommissionPayout,
   updateReferralCode,
   type ReferralCodeInput,
@@ -185,5 +186,22 @@ describe("referans kodları ve komisyonlar", () => {
     await expect(applyReferralCodeToOrder(user.id, order.number, "RAP10")).rejects.toThrow(/pakette/);
     await updateReferralCode(admin, code.id, { ...codeInput, active: false });
     await expect(applyReferralCodeToOrder(user.id, order.number, "RAP10")).rejects.toThrow(/geçerli değil/);
+  });
+
+  it("sipariş özetindeki kod önizlemesi indirimi hesaplar ama hiçbir kaydı değiştirmez", async () => {
+    const { admin, partner, pkg, code, codeInput } = await setup();
+    const user = await createUser();
+    const preview = await previewReferralCode(user.id, pkg.slug, " rap10 ");
+    expect(preview).toMatchObject({ code: "RAP10", listPriceKurus: 320000, discountKurus: 32000, priceKurus: 288000 });
+    expect(await db.order.count({ where: { userId: user.id } })).toBe(0);
+    expect((await db.referralCode.findUniqueOrThrow({ where: { id: code.id } })).usageCount).toBe(0);
+
+    await expect(previewReferralCode(user.id, pkg.slug, "YOKBOYLE")).rejects.toThrow(/bulunamadı/);
+    // İş ortağı kendi koduyla indirim alamaz
+    const partnerUser = await createUser("PARTNER");
+    await db.partner.update({ where: { id: partner.id }, data: { userId: partnerUser.id } });
+    await expect(previewReferralCode(partnerUser.id, pkg.slug, "RAP10")).rejects.toThrow(/Kendi/);
+    await updateReferralCode(admin, code.id, { ...codeInput, active: false });
+    await expect(previewReferralCode(user.id, pkg.slug, "RAP10")).rejects.toThrow(/geçerli değil/);
   });
 });

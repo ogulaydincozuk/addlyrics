@@ -114,10 +114,28 @@ export function matchesSignature(kind: FileKindValue, head: Buffer) {
   return fileRules()[kind].signatures.some((check) => check(head));
 }
 
-/** Content-Disposition için güvenli dosya adı */
+const TR_ASCII: Record<string, string> = { ı: "i", İ: "I", ş: "s", Ş: "S", ğ: "g", Ğ: "G", ç: "c", Ç: "C", ö: "o", Ö: "O", ü: "u", Ü: "U" };
+
+/**
+ * Content-Disposition için güvenli dosya adı. HTTP başlıkları yalnızca ASCII taşıyabildiği için Türkçe harfler
+ * karşılıklarına çevrilir, kalan ASCII dışı karakterler "_" olur (özgün ad filename* ile UTF-8 olarak ayrıca gönderilir).
+ */
 export function safeDownloadName(name: string) {
-  const cleaned = name.replace(/[\r\n"\\/]/g, "_").slice(0, 150);
-  return cleaned || "dosya";
+  const ascii = name
+    .replace(/[ıİşŞğĞçÇöÖüÜ]/g, (c) => TR_ASCII[c] ?? "_")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\/;]/g, "_")
+    .slice(0, 150)
+    .trim();
+  return ascii || "dosya";
+}
+
+/** Content-Disposition başlığı: ASCII yedek ad + RFC 5987 ile UTF-8 özgün ad (tarayıcılar Türkçe adı korur). */
+export function contentDisposition(fileName: string, inline: boolean) {
+  const encoded = encodeURIComponent(fileName).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${inline ? "inline" : "attachment"}; filename="${safeDownloadName(fileName)}"; filename*=UTF-8''${encoded}`;
 }
 
 export function contentTypeFor(kind: FileKindValue, fileName: string, declared: string) {
